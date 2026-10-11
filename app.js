@@ -378,6 +378,13 @@
   // ---- install as app (PWA) -----------------------------------------
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(() => { /* offline support is optional */ });
+    // When an update takes over (not on the very first install), reload once to run the new version.
+    if (navigator.serviceWorker.controller) {
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!reloaded) { reloaded = true; location.reload(); }
+      });
+    }
   }
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) ||
