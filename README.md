@@ -7,6 +7,7 @@ A project and task tracker in the style of Todoist, with role-based project acce
 - **Non-members can't see** a project or its tasks, either in the sidebar or by id
 - **Personal tasks**: every user has a private **Inbox** for their own to-dos. Only they can see it, not even the admin
 - Tasks have a due date, a priority (P1–P4), an assignee and a description, and can be marked complete
+- **Subtasks**: open a task to add a checklist of subtasks. They show indented under it with a progress count (e.g. 2/4) and can be collapsed
 - **Today**, **Upcoming** and **Assigned to me** views cover all the projects you can see
 
 ## Run it
@@ -43,7 +44,7 @@ When you change the app, bump `CACHE` in `sw.js` (e.g. `flexo-todo-v2`) so insta
 | `store.js` | Data model and **all permission rules** (no DOM, unit-testable) |
 | `app.js` | UI rendering and localStorage persistence |
 | `index.html`, `styles.css` | App shell and styling |
-| `tests.html`, `tests.js` | 43 automated tests covering the 5-user scenario |
+| `tests.html`, `tests.js` | 53 automated tests covering the 5-user scenario |
 | `TEST_SCENARIO.md` | User/role matrix, permission table and manual test steps |
 | `manifest.webmanifest`, `sw.js`, `icons/` | Makes it installable on phones and usable offline |
 

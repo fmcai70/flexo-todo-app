@@ -227,7 +227,54 @@
     });
   });
 
-  describe('7. End-to-end story across all 5 users', () => {
+  describe('7. Subtasks', () => {
+    test('A member adds a subtask; it inherits the parent\'s project', (s) => {
+      const st = s.createSubtask(CAROL, 't6', { title: 'Check crash logs', assigneeId: DAVE });
+      eq([st.parentId, st.projectId, st.assigneeId], ['t6', MOBILE, DAVE]);
+      eq(s.listSubtasks(DAVE, 't6').map((t) => t.title), ['Reproduce on Pixel 8', 'Check crash logs']);
+    });
+    test('Non-members can neither see nor add subtasks', (s) => {
+      throws(() => s.listSubtasks(BOB, 't6'), PermissionError);
+      throws(() => s.getTask(BOB, 't18'), PermissionError);
+      throws(() => s.createSubtask(EVE, 't1', { title: 'x' }), PermissionError);
+    });
+    test('Subtasks of a personal task stay private to the owner', (s) => {
+      eq(s.listSubtasks(ALICE, 't11').map((t) => t.id), ['t19']);
+      throws(() => s.getTask(BOB, 't19'), PermissionError);
+      throws(() => s.createSubtask(BOB, 't11', { title: 'x' }), PermissionError);
+      const st = s.createSubtask(EVE, 't13', { title: 'Chapter 1' });
+      eq([st.projectId, st.assigneeId], [null, EVE]);
+    });
+    test('Subtask assignee must be a project member', (s) =>
+      throws(() => s.createSubtask(BOB, 't1', { title: 'x', assigneeId: DAVE }), ValidationError));
+    test('Only one level: a subtask cannot have subtasks', (s) =>
+      throws(() => s.createSubtask(BOB, 't16', { title: 'x' }), ValidationError));
+    test('Completing a task completes all of its subtasks', (s) => {
+      s.toggleTask(BOB, 't1');
+      assert(s.listSubtasks(BOB, 't1').every((t) => t.completed));
+    });
+    test('Reopening a subtask reopens its parent', (s) => {
+      s.toggleTask(BOB, 't1');
+      s.toggleTask(CAROL, 't17');
+      eq(s.getTask(BOB, 't1').completed, false);
+    });
+    test('Adding a subtask to a completed task reopens it', (s) => {
+      s.toggleTask(CAROL, 't8'); // reopen…
+      s.toggleTask(CAROL, 't8'); // …and complete again
+      s.createSubtask(CAROL, 't8', { title: 'Late feedback' });
+      eq(s.getTask(CAROL, 't8').completed, false);
+    });
+    test('Deleting a task deletes its subtasks', (s) => {
+      s.deleteTask(BOB, 't1');
+      ['t15', 't16', 't17'].forEach((id) => assert(!s.state.tasks.some((t) => t.id === id), id + ' still exists'));
+    });
+    test('Subtasks with due dates show in Today / Upcoming / Assigned to me', (s) => {
+      assert(s.listTasks(DAVE, { view: 'upcoming' }).some((t) => t.id === 't18'));
+      assert(s.listTasks(DAVE, { view: 'mine' }).some((t) => t.id === 't18'));
+    });
+  });
+
+  describe('8. End-to-end story across all 5 users', () => {
     test('Full scenario', (s) => {
       // Alice (admin) starts a project, appoints Bob as PM with Dave as member.
       const p = s.createProject(ALICE, { name: 'Customer Portal', managerId: BOB, memberIds: [DAVE] });

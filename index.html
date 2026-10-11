@@ -126,6 +126,15 @@
         <label>Assignee <select id="editAssignee"></select></label>
       </div>
       <p class="meta" id="editMeta"></p>
+      <p class="meta" id="parentLink" hidden></p>
+      <div id="subtaskSection" class="subtasks">
+        <div class="subtask-head">Subtasks <span id="subtaskCount"></span></div>
+        <ul id="subtaskList" class="subtask-list"></ul>
+        <div class="row">
+          <input id="newSubtask" placeholder="Add a subtask…" autocomplete="off" aria-label="New subtask">
+          <button class="btn small" type="button" id="addSubtaskBtn">Add</button>
+        </div>
+      </div>
       <p class="error" id="taskError"></p>
       <div class="dialog-actions">
         <button class="btn danger ghost" type="button" id="taskDelete">Delete</button>

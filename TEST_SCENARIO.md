@@ -30,6 +30,7 @@
 | See someone else's personal tasks | ❌ | ❌ | ❌ | ❌ |
 
 Other rules:
+- **Subtasks** follow their parent: same project, same visibility. Completing a task completes its subtasks, reopening a subtask reopens the parent, and deleting a task deletes its subtasks. They go one level deep.
 - **Personal tasks** sit in each user's private **Inbox** and also show in their Today, Upcoming and Assigned to me views. Only the creator can see them, **not even the admin**, and they can't be assigned to anyone else.
 - Tasks can only be assigned to the project's PM or members.
 - When a member is removed, their tasks in that project go back to *Unassigned*.
@@ -37,7 +38,7 @@ Other rules:
 
 ## Automated tests
 
-Open `tests.html` in a browser. It runs 43 checks in 7 groups and shows **PASS/FAIL** in the tab title:
+Open `tests.html` in a browser. It runs 53 checks in 8 groups and shows **PASS/FAIL** in the tab title:
 
 1. Project visibility per user
 2. Non-members are blocked from direct access (by id, task edits, cross-project views)
@@ -45,7 +46,8 @@ Open `tests.html` in a browser. It runs 43 checks in 7 groups and shows **PASS/F
 4. Managing members (add, remove, change PM, delete project)
 5. Tasks (assignment rules, complete/reopen, delete rights, Today/Upcoming views)
 6. Personal tasks (private Inbox)
-7. An end-to-end story across all 5 users
+7. Subtasks
+8. An end-to-end story across all 5 users
 
 ## Manual walkthrough
 
@@ -71,3 +73,8 @@ Use the **Signed in as** dropdown to switch users. **Reset demo** restores the s
 | 16 | Eve | Open **Inbox** → add "Buy safety shoes" due today | Task shows in Inbox and in **Today** with a 📥 Inbox label |
 | 17 | Bob, Alice | Check Inbox / Today | Eve's personal task is **not** visible, even to the admin |
 | 18 | Bob | Open Inbox | Only his own "Book dentist appointment" |
+| 19 | Bob | Website Redesign → open "Draft new homepage wireframe" | **Subtasks 1/3** in the dialog (Hero done, Features, Pricing) |
+| 20 | Bob | Type "Footer section" in *Add a subtask…* → Enter | Appears under the task. Count becomes 1/4 |
+| 21 | Bob | Click **⑂ 1/4 ▾** on the task row | Subtasks collapse. Click again to expand |
+| 22 | Carol | Tick the parent task's circle | Parent **and all its subtasks** complete |
+| 23 | Dave, Eve | Look for the subtasks | Not visible: they follow the parent project's access |

@@ -150,7 +150,18 @@
     const filter = isProject ? { projectId: project.id } : { view: current.id };
     filter.includeCompleted = showCompleted;
     const tasks = store.listTasks(currentUser, filter);
-    $('taskList').replaceChildren(...tasks.map((t) => renderTask(t, !isProject && !isInbox)));
+    let rows;
+    if (isProject || isInbox) {
+      // Nest subtasks under their parent. A subtask whose parent is filtered out shows on its own.
+      const ids = new Set(tasks.map((t) => t.id));
+      rows = tasks.filter((t) => !t.parentId || !ids.has(t.parentId)).flatMap((t) => [
+        renderTask(t, { nested: true }),
+        ...(collapsed.has(t.id) ? [] : tasks.filter((c) => c.parentId === t.id).map((c) => renderTask(c, { indent: true }))),
+      ]);
+    } else {
+      rows = tasks.map((t) => renderTask(t, { showProject: true }));
+    }
+    $('taskList').replaceChildren(...rows);
     const empty = $('emptyState');
     empty.hidden = tasks.length > 0;
     if (!tasks.length) {
@@ -176,9 +187,27 @@
     return el('span', { class: 'project-label' }, el('span', { class: 'dot', style: 'background:' + p.color }), p.name);
   }
 
-  function renderTask(t, showProject) {
+  const collapsed = new Set(); // parent task ids whose subtasks are hidden
+
+  // opts: { showProject, nested (subtasks listed below it), indent (is a nested subtask) }
+  function renderTask(t, opts = {}) {
     const assignee = t.assigneeId ? userById(t.assigneeId) : null;
-    return el('li', { class: 'task' + (t.completed ? ' done' : '') },
+    const subs = t.parentId ? [] : store.listSubtasks(currentUser, t.id);
+    let subBadge = null;
+    if (subs.length) {
+      const label = '⑂ ' + subs.filter((s) => s.completed).length + '/' + subs.length;
+      subBadge = opts.nested
+        ? el('button', {
+          class: 'sub-badge', title: collapsed.has(t.id) ? 'Show subtasks' : 'Hide subtasks',
+          onclick: (e) => { e.stopPropagation(); collapsed.has(t.id) ? collapsed.delete(t.id) : collapsed.add(t.id); render(); },
+        }, label + (collapsed.has(t.id) ? ' ▸' : ' ▾'))
+        : el('span', { class: 'sub-badge' }, label);
+    }
+    // In flat views (Today, Upcoming…) show which task a subtask belongs to.
+    const parentHint = t.parentId && !opts.indent
+      ? el('span', { class: 'parent-hint' }, '↳ ' + store.getTask(currentUser, t.parentId).title)
+      : null;
+    return el('li', { class: 'task' + (t.completed ? ' done' : '') + (opts.indent ? ' sub' : '') },
       el('button', {
         class: 'check p' + t.priority, title: t.completed ? 'Mark incomplete' : 'Complete task', 'aria-label': 'Toggle complete',
         onclick: () => attempt(() => { const r = store.toggleTask(currentUser, t.id); toast(r.completed ? 'Task completed' : 'Task reopened'); render(); }),
@@ -187,11 +216,13 @@
         el('div', { class: 'title' }, t.title),
         t.description ? el('div', { class: 'desc' }, t.description) : null,
         el('div', { class: 'meta-row' },
+          subBadge,
           formatDue(t.dueDate),
           // Personal tasks are always the owner's, so skip the assignee there.
           t.projectId === null ? null
             : assignee ? el('span', { class: 'project-label' }, avatar(assignee), ' ' + assignee.name) : el('span', null, 'Unassigned'),
-          showProject ? projectLabel(t.projectId) : null)));
+          parentHint,
+          opts.showProject ? projectLabel(t.projectId) : null)));
   }
 
   // ---- add task ------------------------------------------------------
@@ -316,10 +347,58 @@
     $('editMeta').textContent = p
       ? 'In ' + p.name + ' · created by ' + userById(t.createdBy).name
       : '📥 Personal task in your Inbox · only you can see it';
-    $('taskDelete').hidden = !(t.createdBy === currentUser || (p && store.canManage(currentUser, p.id)));
+    $('taskDelete').hidden = !canDelete(t, p);
     $('taskError').textContent = '';
-    $('taskDialog').showModal();
+
+    // Subtasks: a top-level task lists and adds them; a subtask links back to its parent.
+    $('subtaskSection').hidden = !!t.parentId;
+    $('parentLink').hidden = !t.parentId;
+    if (t.parentId) {
+      const parent = store.getTask(currentUser, t.parentId);
+      $('parentLink').replaceChildren('Subtask of ',
+        el('a', { href: '#', onclick: (e) => { e.preventDefault(); openTaskDialog(parent.id); } }, parent.title));
+    } else {
+      $('newSubtask').value = '';
+      renderSubtaskList();
+    }
+    if (!$('taskDialog').open) $('taskDialog').showModal();
   }
+
+  const canDelete = (t, p) => t.createdBy === currentUser || !!(p && store.canManage(currentUser, p.id));
+
+  function renderSubtaskList() {
+    const parent = store.getTask(currentUser, editingTaskId);
+    const p = parent.projectId === null ? null : store.getProject(currentUser, parent.projectId);
+    const subs = store.listSubtasks(currentUser, editingTaskId);
+    $('subtaskCount').textContent = subs.length ? subs.filter((s) => s.completed).length + '/' + subs.length : '';
+    $('subtaskList').replaceChildren(...subs.map((s) => el('li', { class: s.completed ? 'done' : '' },
+      el('button', {
+        type: 'button', class: 'check small p' + s.priority, 'aria-label': 'Toggle subtask',
+        onclick: () => attempt(() => { store.toggleTask(currentUser, s.id); renderSubtaskList(); render(); }),
+      }, '✓'),
+      el('a', { href: '#', class: 'sub-title', onclick: (e) => { e.preventDefault(); openTaskDialog(s.id); } }, s.title),
+      s.assigneeId && p ? avatar(userById(s.assigneeId)) : null,
+      canDelete(s, p) ? el('button', {
+        type: 'button', class: 'icon-btn', title: 'Delete subtask', 'aria-label': 'Delete subtask',
+        onclick: () => attempt(() => { store.deleteTask(currentUser, s.id); renderSubtaskList(); render(); }),
+      }, '✕') : null)));
+  }
+
+  function addSubtask() {
+    const title = $('newSubtask').value;
+    if (!title.trim()) return;
+    attempt(() => {
+      store.createSubtask(currentUser, editingTaskId, { title });
+      $('newSubtask').value = '';
+      renderSubtaskList();
+      render();
+    });
+    $('newSubtask').focus();
+  }
+  $('addSubtaskBtn').addEventListener('click', addSubtask);
+  $('newSubtask').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); addSubtask(); }
+  });
 
   $('taskForm').addEventListener('submit', (e) => {
     if (e.submitter && e.submitter.value === 'cancel') return;

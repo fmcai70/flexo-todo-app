@@ -39,7 +39,7 @@
     const now = new Date().toISOString();
     const task = (id, projectId, title, createdBy, assigneeId, due, priority, extra) =>
       Object.assign({
-        id, projectId, title, description: '', createdBy, assigneeId,
+        id, projectId, parentId: null, title, description: '', createdBy, assigneeId,
         dueDate: due === null ? null : isoDate(due), priority,
         completed: false, completedAt: null, createdAt: now,
       }, extra);
@@ -75,6 +75,12 @@
         task('t12', null, 'Book dentist appointment', 'u2', 'u2', 3, 3),
         task('t13', null, 'Read onboarding handbook', 'u5', 'u5', 0, 2),
         task('t14', null, 'Set up email signature', 'u5', 'u5', null, 4),
+        // Subtasks (inherit the parent's project and visibility).
+        task('t15', 'p1', 'Hero section', 'u2', 'u3', null, 4, { parentId: 't1', completed: true, completedAt: now }),
+        task('t16', 'p1', 'Features section', 'u2', 'u3', null, 4, { parentId: 't1' }),
+        task('t17', 'p1', 'Pricing section', 'u3', 'u3', null, 4, { parentId: 't1' }),
+        task('t18', 'p2', 'Reproduce on Pixel 8', 'u3', 'u4', 1, 2, { parentId: 't6' }),
+        task('t19', null, 'Get emission test', 'u1', 'u1', 3, 3, { parentId: 't11' }),
       ],
     };
   }
@@ -290,13 +296,36 @@
       const p = projectId === null ? null : requireView(actorId, projectId);
       const f = validateTaskFields(p, Object.assign({ priority: 4, dueDate: null, assigneeId: null, description: '' }, fields, { title: fields.title }), actorId);
       const t = {
-        id: newId('t'), projectId, title: f.title, description: String(f.description || ''),
+        id: newId('t'), projectId, parentId: null, title: f.title, description: String(f.description || ''),
         createdBy: actorId, assigneeId: f.assigneeId, dueDate: f.dueDate, priority: f.priority,
         completed: false, completedAt: null, createdAt: new Date().toISOString(),
       };
       state.tasks.push(t);
       notify();
       return clone(t);
+    }
+
+    const childrenOf = (taskId) => state.tasks.filter((x) => x.parentId === taskId);
+
+    /**
+     * Adds a subtask under parentId. It lives in the parent's project (or the owner's Inbox)
+     * and anyone who can see the parent can add one. Only one level deep, like a checklist.
+     */
+    function createSubtask(actorId, parentId, fields = {}) {
+      const parent = requireTask(actorId, parentId);
+      if (parent.parentId) throw new ValidationError('Subtasks cannot have their own subtasks');
+      const t = createTask(actorId, parent.projectId, fields);
+      const stored = findTask(t.id);
+      stored.parentId = parent.id;
+      // Adding open work under a finished task reopens it.
+      if (parent.completed) { parent.completed = false; parent.completedAt = null; }
+      notify();
+      return clone(stored);
+    }
+
+    function listSubtasks(actorId, taskId) {
+      requireTask(actorId, taskId);
+      return clone(childrenOf(taskId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id, undefined, { numeric: true }));
     }
 
     function updateTask(actorId, taskId, patch = {}) {
@@ -312,8 +341,18 @@
 
     function toggleTask(actorId, taskId) {
       const t = requireTask(actorId, taskId);
+      const stamp = new Date().toISOString();
       t.completed = !t.completed;
-      t.completedAt = t.completed ? new Date().toISOString() : null;
+      t.completedAt = t.completed ? stamp : null;
+      if (t.completed) {
+        // Completing a task completes its subtasks (as in Todoist).
+        childrenOf(t.id).forEach((c) => { if (!c.completed) { c.completed = true; c.completedAt = stamp; } });
+      } else if (t.parentId) {
+        // Reopening a subtask reopens its parent.
+        const parent = findTask(t.parentId);
+        parent.completed = false;
+        parent.completedAt = null;
+      }
       notify();
       return clone(t);
     }
@@ -323,7 +362,8 @@
       if (t.createdBy !== actorId && (t.projectId === null || !canManage(actorId, t.projectId))) {
         throw new PermissionError('Only the task creator, project manager, or an admin can delete this task');
       }
-      state.tasks = state.tasks.filter((x) => x.id !== taskId);
+      // Subtasks go with their parent.
+      state.tasks = state.tasks.filter((x) => x.id !== taskId && x.parentId !== taskId);
       notify();
     }
 
@@ -332,7 +372,7 @@
       listUsers, getUser, isAdmin, roleIn, canView, canManage,
       listProjects, getProject, createProject, updateProject, deleteProject,
       addMember, removeMember, setManager,
-      listTasks, getTask, createTask, updateTask, toggleTask, deleteTask,
+      listTasks, getTask, createTask, createSubtask, listSubtasks, updateTask, toggleTask, deleteTask,
     };
   }
 
