@@ -19,13 +19,17 @@
   <header class="topbar">
     <button class="icon-btn menu-btn" id="menuBtn" aria-label="Toggle sidebar">☰</button>
     <div class="brand">✔ Flexo Todo</div>
+    <form class="search" id="searchForm" role="search">
+      <input type="search" id="searchInput" placeholder="Search tasks" aria-label="Search tasks" autocomplete="off">
+    </form>
     <div class="spacer"></div>
+    <button class="btn ghost small" id="notifyBtn" hidden title="Allow reminder notifications">🔔<span class="hide-sm"> Enable reminders</span></button>
     <label class="signed-in">
       <span>Signed in as</span>
       <select id="userSelect" aria-label="Switch user"></select>
     </label>
     <button class="btn ghost small" id="installBtn" hidden>Install app</button>
-    <button class="btn ghost small" id="resetBtn" title="Restore the 5-user demo data">Reset demo</button>
+    <button class="btn ghost small" id="resetBtn" title="Restore the 5-user demo data">Reset<span class="hide-sm"> demo</span></button>
   </header>
 
   <div class="layout">
@@ -42,6 +46,14 @@
       </div>
       <ul class="nav" id="projectNav"></ul>
       <p class="hint" id="noProjects" hidden>You are not a member of any project yet. Create one, or ask a project manager to add you.</p>
+      <div class="nav-heading">
+        <span>Filters</span>
+        <button class="icon-btn" id="addFilterBtn" title="Add filter" aria-label="Add filter">＋</button>
+      </div>
+      <ul class="nav" id="filterNav"></ul>
+      <div class="nav-heading"><span>Labels</span></div>
+      <ul class="nav" id="labelNav"></ul>
+      <p class="hint" id="noLabels" hidden>Add labels like <b>@urgent</b> to tasks and they'll show up here.</p>
     </nav>
 
     <main class="main" id="main">
@@ -55,6 +67,7 @@
       <div class="members-bar" id="membersBar"></div>
 
       <ul class="task-list" id="taskList"></ul>
+      <div class="board" id="board" hidden></div>
       <p class="empty" id="emptyState" hidden></p>
 
       <form class="add-task" id="addTaskForm" hidden>
@@ -62,6 +75,8 @@
         <input id="newDesc" placeholder="Description" autocomplete="off">
         <div class="row">
           <input type="date" id="newDue" aria-label="Due date">
+          <input type="time" id="newTime" aria-label="Due time">
+          <select id="newRepeat" aria-label="Repeat"></select>
           <select id="newPriority" aria-label="Priority">
             <option value="1">Priority 1</option>
             <option value="2">Priority 2</option>
@@ -69,6 +84,8 @@
             <option value="4" selected>Priority 4</option>
           </select>
           <select id="newAssignee" aria-label="Assignee"></select>
+          <select id="newSection" aria-label="Section"></select>
+          <input id="newLabels" placeholder="@labels" autocomplete="off" aria-label="Labels" class="labels-input">
           <div class="spacer"></div>
           <button class="btn primary" type="submit">Add task</button>
         </div>
@@ -125,6 +142,15 @@
         </label>
         <label>Assignee <select id="editAssignee"></select></label>
       </div>
+      <div class="row">
+        <label>Time <input type="time" id="editTime"></label>
+        <label>Repeat <select id="editRepeat"></select></label>
+        <label>Reminder <select id="editReminder"></select></label>
+      </div>
+      <div class="row">
+        <label id="editSectionWrap">Section <select id="editSection"></select></label>
+        <label>Labels <input id="editLabels" placeholder="@urgent @client-x" autocomplete="off"></label>
+      </div>
       <p class="meta" id="editMeta"></p>
       <p class="meta" id="parentLink" hidden></p>
       <div id="subtaskSection" class="subtasks">
@@ -138,6 +164,35 @@
       <p class="error" id="taskError"></p>
       <div class="dialog-actions">
         <button class="btn danger ghost" type="button" id="taskDelete">Delete</button>
+        <div class="spacer"></div>
+        <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn primary" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Saved filter dialog -->
+  <dialog id="filterDialog">
+    <form method="dialog" id="filterForm">
+      <h2 id="filterDialogTitle">Add filter</h2>
+      <label>Name <input id="filterName" required maxlength="60" placeholder="e.g. Urgent this week"></label>
+      <label>Query <input id="filterQuery" required autocomplete="off" placeholder="e.g. p1 & @urgent | overdue"></label>
+      <p class="meta" id="filterPreview"></p>
+      <details class="query-help">
+        <summary>How to write a query</summary>
+        <p>Join terms with <b>&amp;</b> (and) or <b>|</b> (or). Put <b>!</b> in front of a term to exclude it. Tap an example to use it:</p>
+        <div class="examples" id="filterExamples"></div>
+        <ul>
+          <li><code>p1</code> … <code>p4</code>: priority</li>
+          <li><code>today</code>, <code>tomorrow</code>, <code>overdue</code>, <code>no date</code>, <code>next 7 days</code></li>
+          <li><code>@label</code>, <code>#Project Name</code>, <code>#Inbox</code></li>
+          <li><code>assigned to: me</code>, <code>assigned to: Carol</code>, <code>assigned to: nobody</code></li>
+          <li><code>recurring</code>, <code>subtask</code>, <code>search: invoice</code></li>
+        </ul>
+      </details>
+      <p class="error" id="filterError"></p>
+      <div class="dialog-actions">
+        <button class="btn danger ghost" type="button" id="filterDelete" hidden>Delete filter</button>
         <div class="spacer"></div>
         <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
         <button class="btn primary" value="save">Save</button>

@@ -30,6 +30,10 @@
 | See someone else's personal tasks | ❌ | ❌ | ❌ | ❌ |
 
 Other rules:
+- **Sections**: any member can add or rename a section. Only the PM or admin can delete one, and its tasks move to "No section". Subtasks and Inbox tasks are not put in sections.
+- **Labels, filters and search** only ever show tasks you can already see. **Saved filters are private** to the person who made them.
+- **Repeating tasks** are never marked done. Completing one moves it to its next date and reopens its subtasks. Repeat, time and reminder all need a due date.
+- **Reminders** go to the task's assignee only.
 - **Subtasks** follow their parent: same project, same visibility. Completing a task completes its subtasks, reopening a subtask reopens the parent, and deleting a task deletes its subtasks. They go one level deep.
 - **Personal tasks** sit in each user's private **Inbox** and also show in their Today, Upcoming and Assigned to me views. Only the creator can see them, **not even the admin**, and they can't be assigned to anyone else.
 - Tasks can only be assigned to the project's PM or members.
@@ -38,7 +42,7 @@ Other rules:
 
 ## Automated tests
 
-Open `tests.html` in a browser. It runs 53 checks in 8 groups and shows **PASS/FAIL** in the tab title:
+Open `tests.html` in a browser. It runs 78 checks in 11 groups and shows **PASS/FAIL** in the tab title:
 
 1. Project visibility per user
 2. Non-members are blocked from direct access (by id, task edits, cross-project views)
@@ -47,7 +51,10 @@ Open `tests.html` in a browser. It runs 53 checks in 8 groups and shows **PASS/F
 5. Tasks (assignment rules, complete/reopen, delete rights, Today/Upcoming views)
 6. Personal tasks (private Inbox)
 7. Subtasks
-8. An end-to-end story across all 5 users
+8. Recurring tasks, due times and reminders
+9. Sections and board columns
+10. Labels, filters and search
+11. An end-to-end story across all 5 users
 
 ## Manual walkthrough
 
@@ -78,3 +85,13 @@ Use the **Signed in as** dropdown to switch users. **Reset demo** restores the s
 | 21 | Bob | Click **⑂ 1/4 ▾** on the task row | Subtasks collapse. Click again to expand |
 | 22 | Carol | Tick the parent task's circle | Parent **and all its subtasks** complete |
 | 23 | Dave, Eve | Look for the subtasks | Not visible: they follow the parent project's access |
+| 24 | Carol | Mobile App Launch → **Board** | Columns: No section, Development, Release |
+| 25 | Carol | Drag "Write release notes" to **No section** (on a phone, open the task → *Section*) | Card moves. "Moved to No section" message appears |
+| 26 | Carol | Type in a column's **＋ Add task** box → Enter | Task is created in that column |
+| 27 | Carol | Open a task → Due tomorrow, Time 09:30, Repeat *Every week*, Reminder *30 minutes before*, Labels `@analytics` → Save | Card shows 📅 Tomorrow 9:30 AM 🔁 ⏰ @analytics |
+| 28 | Carol | Tick that task | Stays open and moves to next week ("🔁 Done! Next: …") |
+| 29 | Carol | Sidebar **Filters ＋** → name "Urgent bugs", tap example `p1 & @urgent` → Save | Preview says 1 match. The filter lists "Fix login crash on Android" |
+| 30 | Bob | Look at Filters | Sees only his own "My week", not Carol's filter |
+| 31 | Bob | Click label **urgent** | Only "Set up staging site" (Mobile App tasks stay hidden) |
+| 32 | Bob / Carol | Search "release" | Bob: no results. Carol: 2 Mobile App tasks |
+| 33 | Dave | Tap **🔔 Enable reminders** → Allow. Keep the app open at 2:30 PM | "Finalize app store screenshots" reminder pops up (it's due 3:00 PM) |

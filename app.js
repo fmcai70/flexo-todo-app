@@ -4,21 +4,26 @@
 
   const STORAGE_KEY = 'flexoTodo.data.v1';
   const USER_KEY = 'flexoTodo.user';
-  const { createStore, isoDate } = window.TaskStore;
+  const NOTIFIED_KEY = 'flexoTodo.notified';
+  const VIEWMODE_KEY = 'flexoTodo.viewMode';
+  const { createStore, isoDate, RECURRENCE, REMINDERS } = window.TaskStore;
 
   // ---- persistence (wrapped: storage can be unavailable in private windows) ----
   function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
   function save(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* ignore */ } }
+  function loadJSON(key, fallback) { try { return JSON.parse(load(key)) || fallback; } catch (e) { return fallback; } }
 
-  let saved = null;
-  try { saved = JSON.parse(load(STORAGE_KEY)); } catch (e) { saved = null; }
+  const saved = loadJSON(STORAGE_KEY, null);
   let store = createStore(saved, (state) => save(STORAGE_KEY, JSON.stringify(state)));
   if (!saved) save(STORAGE_KEY, JSON.stringify(store.state));
 
   let currentUser = load(USER_KEY) || 'u1';
   if (!store.listUsers().some((u) => u.id === currentUser)) currentUser = 'u1';
+  // current: { type: 'view', id } | { type: 'project', id } | { type: 'label', id } | { type: 'filter', id } | { type: 'search', q }
   let current = { type: 'view', id: 'today' };
   let showCompleted = false;
+  const viewModes = loadJSON(VIEWMODE_KEY, {}); // projectId -> 'list' | 'board'
+  const collapsed = new Set(); // parent task ids whose subtasks are hidden
 
   // ---- helpers -------------------------------------------------------
   const $ = (id) => document.getElementById(id);
@@ -34,6 +39,8 @@
     children.flat().forEach((c) => { if (c != null && c !== false) n.append(c.nodeType ? c : String(c)); });
     return n;
   }
+  const options = (pairs, selected) => pairs.map(([value, label]) =>
+    el('option', { value, selected: String(value) === String(selected ?? '') }, label));
   const AVATAR_COLORS = ['#b8255f', '#4073ff', '#299438', '#ff9933', '#884dff'];
   function avatar(user) {
     const idx = parseInt(user.id.replace(/\D/g, ''), 10) % AVATAR_COLORS.length;
@@ -41,60 +48,77 @@
     return el('span', { class: 'avatar', style: 'background:' + AVATAR_COLORS[idx], title: user.name }, initials);
   }
   const userById = (id) => store.listUsers().find((u) => u.id === id);
+  const go = (view) => { current = view; closeSidebar(); render(); };
 
-  function toast(msg, isError) {
+  function toast(msg, isError, ms) {
     const t = $('toast');
     t.textContent = msg;
     t.className = 'toast' + (isError ? ' error' : '');
     t.hidden = false;
     clearTimeout(toast.timer);
-    toast.timer = setTimeout(() => { t.hidden = true; }, 2800);
+    toast.timer = setTimeout(() => { t.hidden = true; }, ms || 2800);
   }
   function attempt(fn) {
     try { return fn(); } catch (e) { toast(e.message, true); return undefined; }
   }
 
-  function formatDue(due) {
-    if (!due) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  const nowHM = () => { const d = new Date(); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+  function dateLabel(due) {
     const today = isoDate(0);
-    const tomorrow = isoDate(1);
+    if (due === today) return 'Today';
+    if (due === isoDate(1)) return 'Tomorrow';
+    if (due === isoDate(-1)) return 'Yesterday';
+    const opts = due < today ? { month: 'short', day: 'numeric' } : { weekday: 'short', month: 'short', day: 'numeric' };
+    return new Date(due + 'T12:00').toLocaleDateString(undefined, opts);
+  }
+  function timeLabel(hm) {
+    const [h, m] = hm.split(':').map(Number);
+    return new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+  function formatDue(t) {
+    if (!t.dueDate) return null;
+    const today = isoDate(0);
     let cls = '';
-    let label;
-    if (due < today) { cls = 'overdue'; label = new Date(due + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
-    else if (due === today) { cls = 'today'; label = 'Today'; }
-    else if (due === tomorrow) { label = 'Tomorrow'; }
-    else label = new Date(due + 'T12:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-    return el('span', { class: 'due ' + cls }, '📅 ' + label);
+    if (t.dueDate < today || (t.dueDate === today && t.dueTime && t.dueTime < nowHM())) cls = 'overdue';
+    else if (t.dueDate === today) cls = 'today';
+    return el('span', { class: 'due ' + cls }, '📅 ' + dateLabel(t.dueDate) + (t.dueTime ? ' ' + timeLabel(t.dueTime) : ''));
   }
 
   const ROLE_LABEL = { manager: 'Manager', member: 'Member', admin: 'Admin access' };
+  const REPEAT_OPTIONS = [['', 'Does not repeat'], ...Object.entries(RECURRENCE)];
+  const REMINDER_OPTIONS = [['', 'No reminder'], ...Object.entries(REMINDERS).sort((a, b) => a[0] - b[0])];
+  const peopleOf = (p) => [p.managerId, ...p.memberIds];
 
   // ---- render --------------------------------------------------------
   function render() {
-    // A project may have become invisible (e.g. removed, or user switched).
-    if (current.type === 'project' && !store.canView(currentUser, current.id)) current = { type: 'view', id: 'today' };
-    renderUserSelect();
+    // The current view may have disappeared (removed from project, filter deleted, user switched).
+    if ((current.type === 'project' && !store.canView(currentUser, current.id)) ||
+        (current.type === 'filter' && !store.listFilters(currentUser).some((f) => f.id === current.id))) {
+      current = { type: 'view', id: 'today' };
+    }
+    renderTopbar();
     renderSidebar();
     renderMain();
   }
 
-  function renderUserSelect() {
-    const sel = $('userSelect');
-    sel.replaceChildren(...store.listUsers().map((u) =>
+  function renderTopbar() {
+    $('userSelect').replaceChildren(...store.listUsers().map((u) =>
       el('option', { value: u.id, selected: u.id === currentUser }, u.name + (u.role === 'admin' ? ' (Admin)' : ''))));
+    $('notifyBtn').hidden = !('Notification' in window) || Notification.permission !== 'default';
+    if (current.type !== 'search' && document.activeElement !== $('searchInput')) $('searchInput').value = '';
+  }
+
+  function navItem(active, onclick, ...children) {
+    return el('li', { class: active ? 'active' : '', onclick }, ...children);
   }
 
   function renderSidebar() {
-    const counts = {
-      inbox: store.listTasks(currentUser, { view: 'inbox' }).length,
-      today: store.listTasks(currentUser, { view: 'today' }).length,
-      upcoming: store.listTasks(currentUser, { view: 'upcoming' }).length,
-      mine: store.listTasks(currentUser, { view: 'mine' }).length,
-    };
-    $('countInbox').textContent = counts.inbox || '';
-    $('countToday').textContent = counts.today || '';
-    $('countUpcoming').textContent = counts.upcoming || '';
-    $('countMine').textContent = counts.mine || '';
+    const count = (f) => store.listTasks(currentUser, f).length || '';
+    $('countInbox').textContent = count({ view: 'inbox' });
+    $('countToday').textContent = count({ view: 'today' });
+    $('countUpcoming').textContent = count({ view: 'upcoming' });
+    $('countMine').textContent = count({ view: 'mine' });
     document.querySelectorAll('#viewNav li').forEach((li) =>
       li.classList.toggle('active', current.type === 'view' && current.id === li.dataset.view));
 
@@ -102,83 +126,170 @@
     $('noProjects').hidden = projects.length > 0;
     $('projectNav').replaceChildren(...projects.map((p) => {
       const role = store.roleIn(currentUser, p.id);
-      const open = store.listTasks(currentUser, { projectId: p.id }).length;
-      return el('li', {
-        class: current.type === 'project' && current.id === p.id ? 'active' : '',
-        onclick: () => { current = { type: 'project', id: p.id }; closeSidebar(); render(); },
-      },
-      el('span', { class: 'dot', style: 'background:' + p.color }),
-      el('span', null, p.name),
-      role !== 'member' ? el('span', { class: 'tag ' + role }, role === 'manager' ? 'PM' : 'Admin') : null,
-      el('span', { class: 'count' }, open || ''));
+      return navItem(current.type === 'project' && current.id === p.id, () => go({ type: 'project', id: p.id }),
+        el('span', { class: 'dot', style: 'background:' + p.color }),
+        el('span', null, p.name),
+        role !== 'member' ? el('span', { class: 'tag ' + role }, role === 'manager' ? 'PM' : 'Admin') : null,
+        el('span', { class: 'count' }, count({ projectId: p.id })));
     }));
+
+    $('filterNav').replaceChildren(...store.listFilters(currentUser).map((f) => {
+      let n = '';
+      try { n = store.filterTasks(currentUser, f.query).length || ''; } catch (e) { n = '!'; }
+      return navItem(current.type === 'filter' && current.id === f.id, () => go({ type: 'filter', id: f.id }),
+        el('span', { class: 'nav-icon' }, '⚡'), el('span', null, f.name), el('span', { class: 'count' }, n));
+    }));
+
+    const labels = store.listLabels(currentUser);
+    $('noLabels').hidden = labels.length > 0;
+    $('labelNav').replaceChildren(...labels.map((l) =>
+      navItem(current.type === 'label' && current.id === l.name, () => go({ type: 'label', id: l.name }),
+        el('span', { class: 'nav-icon' }, '🏷'), el('span', null, l.name), el('span', { class: 'count' }, l.count || ''))));
   }
 
   function renderMain() {
     const isProject = current.type === 'project';
-    const project = isProject ? store.getProject(currentUser, current.id) : null;
     const isInbox = current.type === 'view' && current.id === 'inbox';
-    const titles = { inbox: 'Inbox', today: 'Today', upcoming: 'Upcoming', mine: 'Assigned to me' };
-
-    $('viewTitle').replaceChildren(isProject
-      ? el('span', null, el('span', { class: 'dot', style: 'display:inline-block;background:' + project.color }), ' ' + project.name)
-      : titles[current.id]);
-
-    // Subtitle & header actions
+    const project = isProject ? store.getProject(currentUser, current.id) : null;
+    const boardMode = isProject && viewModes[project.id] === 'board';
     const actions = [];
+    let title;
+    let sub = '';
+    let tasks;
+    let emptyText = 'Nothing here. Enjoy your day! 🎉';
+    $('membersBar').replaceChildren();
+
     if (isProject) {
       const role = store.roleIn(currentUser, project.id);
-      const mgr = userById(project.managerId);
-      $('viewSub').textContent = 'Project manager: ' + mgr.name + ' · Your role: ' + ROLE_LABEL[role];
-      actions.push(el('button', { class: 'btn ghost small', onclick: () => openProjectDialog(project.id) },
-        store.canManage(currentUser, project.id) ? '⚙ Manage project' : 'ⓘ Project info'));
-      const people = [project.managerId, ...project.memberIds].map(userById);
-      $('membersBar').replaceChildren(...people.map((u) =>
+      title = el('span', null, el('span', { class: 'dot', style: 'display:inline-block;background:' + project.color }), ' ' + project.name);
+      sub = 'Project manager: ' + userById(project.managerId).name + ' · Your role: ' + ROLE_LABEL[role];
+      actions.push(
+        el('div', { class: 'segmented', role: 'group', 'aria-label': 'Layout' },
+          el('button', { class: boardMode ? '' : 'on', onclick: () => setViewMode(project.id, 'list') }, '☰ List'),
+          el('button', { class: boardMode ? 'on' : '', onclick: () => setViewMode(project.id, 'board') }, '▦ Board')),
+        el('button', { class: 'btn ghost small', onclick: () => addSection(project.id) }, '＋ Section'),
+        el('button', { class: 'btn ghost small', onclick: () => openProjectDialog(project.id) },
+          store.canManage(currentUser, project.id) ? '⚙ Manage' : 'ⓘ Info'));
+      $('membersBar').replaceChildren(...peopleOf(project).map(userById).map((u) =>
         el('span', { class: 'chip' }, avatar(u), u.name, u.id === project.managerId ? el('span', { class: 'tag manager' }, 'PM') : null)));
-    } else {
-      $('viewSub').textContent = {
+      tasks = store.listTasks(currentUser, { projectId: project.id, includeCompleted: showCompleted });
+    } else if (current.type === 'view') {
+      title = { inbox: 'Inbox', today: 'Today', upcoming: 'Upcoming', mine: 'Assigned to me' }[current.id];
+      sub = {
         inbox: '🔒 Your personal tasks. Only you can see these.',
         today: new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) + ' · overdue and due today',
         upcoming: 'Due after today, across your Inbox and projects',
         mine: 'Tasks assigned to you, including your Inbox',
       }[current.id];
-      $('membersBar').replaceChildren();
-    }
-    $('headerActions').replaceChildren(...actions);
-
-    // Tasks
-    const filter = isProject ? { projectId: project.id } : { view: current.id };
-    filter.includeCompleted = showCompleted;
-    const tasks = store.listTasks(currentUser, filter);
-    let rows;
-    if (isProject || isInbox) {
-      // Nest subtasks under their parent. A subtask whose parent is filtered out shows on its own.
-      const ids = new Set(tasks.map((t) => t.id));
-      rows = tasks.filter((t) => !t.parentId || !ids.has(t.parentId)).flatMap((t) => [
-        renderTask(t, { nested: true }),
-        ...(collapsed.has(t.id) ? [] : tasks.filter((c) => c.parentId === t.id).map((c) => renderTask(c, { indent: true }))),
-      ]);
+      if (isInbox) emptyText = 'Your Inbox is empty. Add a personal task below.';
+      tasks = store.listTasks(currentUser, { view: current.id, includeCompleted: showCompleted });
+    } else if (current.type === 'label') {
+      title = '🏷 @' + current.id;
+      sub = 'Tasks with this label in your Inbox and projects';
+      tasks = store.listTasks(currentUser, { label: current.id, includeCompleted: showCompleted });
+    } else if (current.type === 'filter') {
+      const f = store.getFilter(currentUser, current.id);
+      title = '⚡ ' + f.name;
+      sub = 'Filter: ' + f.query;
+      actions.push(el('button', { class: 'btn ghost small', onclick: () => openFilterDialog(f.id) }, '✎ Edit filter'));
+      tasks = attempt(() => store.filterTasks(currentUser, f.query, { includeCompleted: showCompleted })) || [];
+      emptyText = 'No tasks match this filter.';
     } else {
-      rows = tasks.map((t) => renderTask(t, { showProject: true }));
-    }
-    $('taskList').replaceChildren(...rows);
-    const empty = $('emptyState');
-    empty.hidden = tasks.length > 0;
-    if (!tasks.length) {
-      empty.textContent = isInbox
-        ? 'Your Inbox is empty. Add a personal task below.'
-        : 'Nothing here. Enjoy your day! 🎉';
+      title = 'Search: "' + current.q + '"';
+      sub = 'Matches in titles, descriptions and labels';
+      tasks = store.searchTasks(currentUser, current.q, { includeCompleted: showCompleted });
+      emptyText = 'No tasks found.';
     }
 
-    // Add task form inside a project or in the personal Inbox
-    $('addTaskForm').hidden = !(isProject || isInbox);
-    $('newAssignee').hidden = !isProject;
-    $('newTitle').placeholder = isInbox ? 'Personal task, e.g. Renew passport' : 'Task name, e.g. Send invoice';
-    if (isProject) {
-      const opts = [el('option', { value: '' }, 'Unassigned')]
-        .concat([project.managerId, ...project.memberIds].map((id) => el('option', { value: id }, userById(id).name)));
-      $('newAssignee').replaceChildren(...opts);
+    $('viewTitle').replaceChildren(title);
+    $('viewSub').textContent = sub;
+    $('headerActions').replaceChildren(...actions);
+    $('main').classList.toggle('wide', boardMode);
+
+    // Task area: board, sectioned list, nested list, or flat list.
+    $('board').hidden = !boardMode;
+    $('taskList').hidden = boardMode;
+    if (boardMode) {
+      renderBoard(project, tasks);
+    } else if (isProject) {
+      $('taskList').replaceChildren(...renderSectionedList(project, tasks));
+    } else if (isInbox) {
+      $('taskList').replaceChildren(...nestedRows(tasks));
+    } else {
+      $('taskList').replaceChildren(...tasks.map((t) => renderTask(t, { showProject: true })));
     }
+    $('emptyState').hidden = tasks.length > 0 || isProject;
+    $('emptyState').textContent = emptyText;
+
+    renderAddForm(isProject ? project : null, isInbox, boardMode);
+  }
+
+  // Subtasks nested under their parent. A subtask whose parent is filtered out shows on its own.
+  function nestedRows(tasks) {
+    const ids = new Set(tasks.map((t) => t.id));
+    return tasks.filter((t) => !t.parentId || !ids.has(t.parentId)).flatMap((t) => [
+      renderTask(t, { nested: true }),
+      ...(collapsed.has(t.id) ? [] : tasks.filter((c) => c.parentId === t.id).map((c) => renderTask(c, { indent: true }))),
+    ]);
+  }
+
+  function renderSectionedList(project, tasks) {
+    const sections = store.listSections(currentUser, project.id);
+    const top = (sectionId) => tasks.filter((t) => !t.parentId && (t.sectionId || null) === sectionId);
+    const withSubs = (list) => nestedRows(tasks.filter((t) => list.includes(t) || list.some((p) => p.id === t.parentId)));
+    const rows = [];
+    const unsectioned = top(null);
+    if (unsectioned.length || !sections.length) rows.push(...withSubs(unsectioned));
+    if (!tasks.length && !sections.length) rows.push(el('li', { class: 'empty' }, 'No tasks yet. Add one below.'));
+    sections.forEach((s) => {
+      const list = top(s.id);
+      rows.push(el('li', { class: 'section-head' }, sectionHeader(project, s, list.length)));
+      rows.push(...withSubs(list));
+    });
+    return rows;
+  }
+
+  function sectionHeader(project, s, n) {
+    return el('div', { class: 'section-title' },
+      el('span', null, s.name), el('span', { class: 'count' }, n || ''),
+      el('div', { class: 'spacer' }),
+      el('button', { class: 'icon-btn', title: 'Rename section', 'aria-label': 'Rename section', onclick: () => renameSection(s) }, '✎'),
+      store.canManage(currentUser, project.id)
+        ? el('button', { class: 'icon-btn', title: 'Delete section', 'aria-label': 'Delete section', onclick: () => deleteSection(s) }, '🗑')
+        : null);
+  }
+
+  function renderBoard(project, tasks) {
+    const sections = [{ id: null, name: 'No section' }, ...store.listSections(currentUser, project.id)];
+    const columns = sections.map((s) => {
+      const cards = tasks.filter((t) => !t.parentId && (t.sectionId || null) === s.id);
+      const col = el('div', { class: 'column', 'data-section': s.id || '' },
+        s.id ? sectionHeader(project, s, cards.length)
+          : el('div', { class: 'section-title' }, el('span', null, s.name), el('span', { class: 'count' }, cards.length || '')),
+        el('ul', { class: 'cards' }, ...cards.map((t) => renderTask(t, { card: true }))),
+        el('form', {
+          class: 'quick-add',
+          onsubmit: (e) => {
+            e.preventDefault();
+            const input = e.target.querySelector('input');
+            if (!input.value.trim()) return;
+            attempt(() => { store.createTask(currentUser, project.id, { title: input.value, sectionId: s.id }); render(); });
+          },
+        }, el('input', { placeholder: '＋ Add task', 'aria-label': 'Add task to ' + s.name, autocomplete: 'off' })));
+      // Drag a card onto a column to move it there (desktop; on phones use the Section field in the task).
+      col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('drop'); });
+      col.addEventListener('dragleave', () => col.classList.remove('drop'));
+      col.addEventListener('drop', (e) => {
+        e.preventDefault();
+        col.classList.remove('drop');
+        const id = e.dataTransfer.getData('text/plain');
+        if (id) attempt(() => { store.updateTask(currentUser, id, { sectionId: s.id }); toast('Moved to ' + s.name); render(); });
+      });
+      return col;
+    });
+    columns.push(el('div', { class: 'column add-column' },
+      el('button', { class: 'btn ghost', onclick: () => addSection(project.id) }, '＋ Add section')));
+    $('board').replaceChildren(...columns);
   }
 
   function projectLabel(projectId) {
@@ -187,9 +298,16 @@
     return el('span', { class: 'project-label' }, el('span', { class: 'dot', style: 'background:' + p.color }), p.name);
   }
 
-  const collapsed = new Set(); // parent task ids whose subtasks are hidden
+  function toggle(t) {
+    attempt(() => {
+      const r = store.toggleTask(currentUser, t.id);
+      if (r.rolledOver) toast('🔁 Done! Next: ' + dateLabel(r.dueDate));
+      else toast(r.completed ? 'Task completed' : 'Task reopened');
+      render();
+    });
+  }
 
-  // opts: { showProject, nested (subtasks listed below it), indent (is a nested subtask) }
+  // opts: { showProject, nested (subtasks listed below it), indent (is a nested subtask), card (board) }
   function renderTask(t, opts = {}) {
     const assignee = t.assigneeId ? userById(t.assigneeId) : null;
     const subs = t.parentId ? [] : store.listSubtasks(currentUser, t.id);
@@ -207,36 +325,98 @@
     const parentHint = t.parentId && !opts.indent
       ? el('span', { class: 'parent-hint' }, '↳ ' + store.getTask(currentUser, t.parentId).title)
       : null;
-    return el('li', { class: 'task' + (t.completed ? ' done' : '') + (opts.indent ? ' sub' : '') },
+    const labelChips = t.labels.map((l) => el('button', {
+      class: 'label-chip', title: 'Show tasks labelled @' + l,
+      onclick: (e) => { e.stopPropagation(); go({ type: 'label', id: l }); },
+    }, '@' + l));
+
+    const li = el('li', { class: 'task' + (t.completed ? ' done' : '') + (opts.indent ? ' sub' : '') + (opts.card ? ' card' : '') },
       el('button', {
         class: 'check p' + t.priority, title: t.completed ? 'Mark incomplete' : 'Complete task', 'aria-label': 'Toggle complete',
-        onclick: () => attempt(() => { const r = store.toggleTask(currentUser, t.id); toast(r.completed ? 'Task completed' : 'Task reopened'); render(); }),
+        onclick: () => toggle(t),
       }, '✓'),
       el('div', { class: 'task-body', onclick: () => openTaskDialog(t.id) },
         el('div', { class: 'title' }, t.title),
-        t.description ? el('div', { class: 'desc' }, t.description) : null,
+        t.description && !opts.card ? el('div', { class: 'desc' }, t.description) : null,
         el('div', { class: 'meta-row' },
           subBadge,
-          formatDue(t.dueDate),
+          formatDue(t),
+          t.recurrence ? el('span', { title: RECURRENCE[t.recurrence] }, '🔁') : null,
+          t.reminder != null ? el('span', { title: 'Reminder: ' + REMINDERS[t.reminder] }, '⏰') : null,
           // Personal tasks are always the owner's, so skip the assignee there.
           t.projectId === null ? null
-            : assignee ? el('span', { class: 'project-label' }, avatar(assignee), ' ' + assignee.name) : el('span', null, 'Unassigned'),
+            : assignee ? el('span', { class: 'project-label' }, avatar(assignee), opts.card ? '' : ' ' + assignee.name)
+              : opts.card ? null : el('span', null, 'Unassigned'),
+          labelChips,
           parentHint,
           opts.showProject ? projectLabel(t.projectId) : null)));
+    if (opts.card) {
+      li.draggable = true;
+      li.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', t.id); li.classList.add('dragging'); });
+      li.addEventListener('dragend', () => li.classList.remove('dragging'));
+    }
+    return li;
+  }
+
+  function setViewMode(projectId, mode) {
+    viewModes[projectId] = mode;
+    save(VIEWMODE_KEY, JSON.stringify(viewModes));
+    render();
+  }
+
+  // ---- sections --------------------------------------------------------
+  function addSection(projectId) {
+    const name = prompt('Section name (e.g. To do, In progress, Done):');
+    if (name === null) return;
+    attempt(() => { store.createSection(currentUser, projectId, name); toast('Section added'); render(); });
+  }
+  function renameSection(s) {
+    const name = prompt('Rename section:', s.name);
+    if (name === null) return;
+    attempt(() => { store.renameSection(currentUser, s.id, name); render(); });
+  }
+  function deleteSection(s) {
+    if (!confirm('Delete section "' + s.name + '"? Its tasks are kept and move to "No section".')) return;
+    attempt(() => { store.deleteSection(currentUser, s.id); toast('Section deleted'); render(); });
   }
 
   // ---- add task ------------------------------------------------------
+  function renderAddForm(project, isInbox, boardMode) {
+    // List views of a project and the Inbox get the full form; the board has per-column quick add.
+    $('addTaskForm').hidden = !((project && !boardMode) || isInbox);
+    if ($('addTaskForm').hidden) return;
+    $('newTitle').placeholder = isInbox ? 'Personal task, e.g. Renew passport' : 'Task name, e.g. Send invoice';
+    $('newAssignee').hidden = !project;
+    if (!$('newRepeat').options.length) $('newRepeat').replaceChildren(...options(REPEAT_OPTIONS, ''));
+    if (project) {
+      const keep = $('newAssignee').value;
+      $('newAssignee').replaceChildren(...options([['', 'Unassigned'], ...peopleOf(project).map((id) => [id, userById(id).name])], keep));
+      const sections = store.listSections(currentUser, project.id);
+      const keepSection = $('newSection').value;
+      $('newSection').replaceChildren(...options([['', 'No section'], ...sections.map((s) => [s.id, s.name])], keepSection));
+      $('newSection').hidden = !sections.length;
+    } else {
+      $('newSection').hidden = true;
+    }
+  }
+
   $('addTaskForm').addEventListener('submit', (e) => {
     e.preventDefault();
+    const isProject = current.type === 'project';
     attempt(() => {
-      store.createTask(currentUser, current.type === 'project' ? current.id : null, {
+      store.createTask(currentUser, isProject ? current.id : null, {
         title: $('newTitle').value,
         description: $('newDesc').value,
         dueDate: $('newDue').value,
+        dueTime: $('newTime').value,
+        recurrence: $('newRepeat').value,
         priority: $('newPriority').value,
-        assigneeId: $('newAssignee').value,
+        assigneeId: isProject ? $('newAssignee').value : null,
+        sectionId: isProject ? $('newSection').value : null,
+        labels: $('newLabels').value,
       });
-      $('newTitle').value = ''; $('newDesc').value = ''; $('newDue').value = '';
+      ['newTitle', 'newDesc', 'newDue', 'newTime', 'newLabels'].forEach((id) => { $(id).value = ''; });
+      $('newRepeat').value = '';
       toast('Task added');
       render();
       $('newTitle').focus();
@@ -339,14 +519,23 @@
     $('editTitle').value = t.title;
     $('editDesc').value = t.description;
     $('editDue').value = t.dueDate || '';
+    $('editTime').value = t.dueTime || '';
     $('editPriority').value = String(t.priority);
-    const people = p ? [p.managerId, ...p.memberIds] : [t.createdBy];
+    $('editRepeat').replaceChildren(...options(REPEAT_OPTIONS, t.recurrence));
+    $('editReminder').replaceChildren(...options(REMINDER_OPTIONS, t.reminder));
+    $('editLabels').value = t.labels.map((l) => '@' + l).join(' ');
+    const people = p ? peopleOf(p) : [t.createdBy];
     $('editAssignee').replaceChildren(...(p ? [el('option', { value: '' }, 'Unassigned')] : []),
       ...people.map((id) => el('option', { value: id, selected: id === t.assigneeId }, userById(id).name)));
     $('editAssignee').closest('label').hidden = !p;
-    $('editMeta').textContent = p
+    // Sections apply to top-level project tasks only.
+    const sections = p && !t.parentId ? store.listSections(currentUser, p.id) : [];
+    $('editSection').replaceChildren(...options([['', 'No section'], ...sections.map((s) => [s.id, s.name])], t.sectionId));
+    $('editSectionWrap').hidden = !sections.length;
+    $('editMeta').textContent = (p
       ? 'In ' + p.name + ' · created by ' + userById(t.createdBy).name
-      : '📥 Personal task in your Inbox · only you can see it';
+      : '📥 Personal task in your Inbox · only you can see it') +
+      (t.lastCompletedAt ? ' · last done ' + new Date(t.lastCompletedAt).toLocaleDateString() : '');
     $('taskDelete').hidden = !canDelete(t, p);
     $('taskError').textContent = '';
 
@@ -404,13 +593,19 @@
     if (e.submitter && e.submitter.value === 'cancel') return;
     e.preventDefault();
     try {
-      store.updateTask(currentUser, editingTaskId, {
+      const patch = {
         title: $('editTitle').value,
         description: $('editDesc').value,
         dueDate: $('editDue').value,
+        dueTime: $('editTime').value,
+        recurrence: $('editRepeat').value,
+        reminder: $('editReminder').value,
         priority: $('editPriority').value,
         assigneeId: $('editAssignee').value,
-      });
+        labels: $('editLabels').value,
+      };
+      if (!$('editSectionWrap').hidden) patch.sectionId = $('editSection').value;
+      store.updateTask(currentUser, editingTaskId, patch);
       $('taskDialog').close();
       toast('Task updated');
       render();
@@ -426,6 +621,96 @@
     });
   });
 
+  // ---- saved filters -------------------------------------------------
+  let editingFilterId = null;
+  const FILTER_EXAMPLES = ['today | overdue', 'p1 & @urgent', 'assigned to: me & next 7 days', '#Inbox & no date', '!@urgent & overdue', 'recurring'];
+
+  function previewFilter() {
+    const q = $('filterQuery').value;
+    if (!q.trim()) { $('filterPreview').textContent = ''; $('filterError').textContent = ''; return; }
+    try {
+      const n = store.filterTasks(currentUser, q).length;
+      $('filterPreview').textContent = 'Matches ' + n + ' open task' + (n === 1 ? '' : 's') + ' right now.';
+      $('filterError').textContent = '';
+    } catch (err) {
+      $('filterPreview').textContent = '';
+      $('filterError').textContent = err.message;
+    }
+  }
+
+  function openFilterDialog(filterId) {
+    editingFilterId = filterId || null;
+    const f = filterId ? store.getFilter(currentUser, filterId) : null;
+    $('filterDialogTitle').textContent = f ? 'Edit filter' : 'Add filter';
+    $('filterName').value = f ? f.name : '';
+    $('filterQuery').value = f ? f.query : '';
+    $('filterDelete').hidden = !f;
+    $('filterExamples').replaceChildren(...FILTER_EXAMPLES.map((q) => el('button', {
+      type: 'button', class: 'example',
+      onclick: () => { $('filterQuery').value = q; previewFilter(); },
+    }, q)));
+    previewFilter();
+    $('filterDialog').showModal();
+  }
+
+  $('filterQuery').addEventListener('input', previewFilter);
+  $('filterForm').addEventListener('submit', (e) => {
+    if (e.submitter && e.submitter.value === 'cancel') return;
+    e.preventDefault();
+    try {
+      const data = { name: $('filterName').value, query: $('filterQuery').value };
+      const f = editingFilterId ? store.updateFilter(currentUser, editingFilterId, data) : store.createFilter(currentUser, data);
+      $('filterDialog').close();
+      toast(editingFilterId ? 'Filter updated' : 'Filter saved');
+      go({ type: 'filter', id: f.id });
+    } catch (err) { $('filterError').textContent = err.message; }
+  });
+  $('filterDelete').addEventListener('click', () => {
+    if (!confirm('Delete this filter? Tasks are not affected.')) return;
+    attempt(() => {
+      store.deleteFilter(currentUser, editingFilterId);
+      $('filterDialog').close();
+      toast('Filter deleted');
+      go({ type: 'view', id: 'today' });
+    });
+  });
+
+  // ---- reminders -----------------------------------------------------
+  // Checked every 30 s while the app is open. Each reminder fires once per occurrence.
+  function checkReminders() {
+    const notified = loadJSON(NOTIFIED_KEY, {});
+    const cutoff = Date.now() - 3 * 24 * 3600 * 1000;
+    Object.keys(notified).forEach((k) => { if (notified[k] < cutoff) delete notified[k]; });
+    store.dueReminders(currentUser).forEach((t) => {
+      const key = [currentUser, t.id, t.dueDate, t.dueTime, t.reminder].join('|');
+      if (notified[key]) return;
+      notified[key] = Date.now();
+      showReminder(t);
+    });
+    save(NOTIFIED_KEY, JSON.stringify(notified));
+  }
+
+  function showReminder(t) {
+    const when = dateLabel(t.dueDate) + (t.dueTime ? ' at ' + timeLabel(t.dueTime) : '');
+    toast('⏰ ' + t.title + ' (due ' + when + ')', false, 8000);
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const opts = { body: 'Due ' + when, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: t.id };
+    // Android only allows notifications through the service worker.
+    const fallback = () => { try { new Notification('⏰ ' + t.title, opts); } catch (e) { /* toast already shown */ } };
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
+      navigator.serviceWorker.getRegistration()
+        .then((reg) => (reg ? reg.showNotification('⏰ ' + t.title, opts) : fallback()))
+        .catch(fallback);
+    } else fallback();
+  }
+
+  $('notifyBtn').addEventListener('click', () => {
+    Notification.requestPermission().then((p) => {
+      toast(p === 'granted' ? 'Reminders will pop up as notifications' : 'Notifications blocked; reminders will show inside the app');
+      render();
+    });
+  });
+
   // ---- global controls -----------------------------------------------
   $('userSelect').addEventListener('change', (e) => {
     currentUser = e.target.value;
@@ -433,15 +718,22 @@
     current = { type: 'view', id: 'today' };
     toast('Signed in as ' + userById(currentUser).name);
     render();
+    checkReminders();
   });
   $('viewNav').addEventListener('click', (e) => {
     const li = e.target.closest('li');
-    if (!li) return;
-    current = { type: 'view', id: li.dataset.view };
-    closeSidebar();
-    render();
+    if (li) go({ type: 'view', id: li.dataset.view });
+  });
+  $('searchForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const q = $('searchInput').value.trim();
+    if (q) go({ type: 'search', q });
+  });
+  $('searchInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { $('searchInput').value = ''; $('searchInput').blur(); }
   });
   $('addProjectBtn').addEventListener('click', () => openProjectDialog(null));
+  $('addFilterBtn').addEventListener('click', () => openFilterDialog(null));
   $('showCompleted').addEventListener('change', (e) => { showCompleted = e.target.checked; render(); });
   $('resetBtn').addEventListener('click', () => {
     if (!confirm('Reset all data to the 5-user demo scenario?')) return;
@@ -490,4 +782,8 @@
   });
 
   render();
+  checkReminders();
+  setInterval(() => { checkReminders(); }, 30000);
+  // Re-render when the user comes back so "Today"/overdue colours stay current.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); checkReminders(); } });
 })();

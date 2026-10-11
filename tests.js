@@ -274,7 +274,165 @@
     });
   });
 
-  describe('8. End-to-end story across all 5 users', () => {
+  const { nextDueDate, reminderAt, normalizeLabels, isoDate } = window.TaskStore;
+  const ids = (tasks) => tasks.map((t) => t.id).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const atToday = (hh, mm) => { const [y, m, d] = isoDate(0).split('-').map(Number); return new Date(y, m - 1, d, hh, mm); };
+
+  describe('8. Recurring tasks, due times and reminders', () => {
+    test('Next date: daily, weekly (overdue), weekdays (Fri → Mon), early completion', () => {
+      eq(nextDueDate('2026-10-11', 'daily', '2026-10-11'), '2026-10-12');
+      eq(nextDueDate('2026-10-05', 'weekly', '2026-10-11'), '2026-10-12', 'overdue weekly jumps past today');
+      eq(nextDueDate('2026-10-09', 'weekdays', '2026-10-09'), '2026-10-12', 'Friday → Monday');
+      eq(nextDueDate('2026-10-20', 'daily', '2026-10-11'), '2026-10-21', 'completed early → one step');
+      eq(nextDueDate('2026-10-11', 'biweekly', '2026-10-11'), '2026-10-25');
+    });
+    test('Next date: monthly and yearly clamp to the end of short months', () => {
+      eq(nextDueDate('2026-01-31', 'monthly', '2026-01-31'), '2026-02-28');
+      eq(nextDueDate('2028-01-31', 'monthly', '2028-01-31'), '2028-02-29', 'leap year');
+      eq(nextDueDate('2026-03-15', 'yearly', '2026-03-15'), '2027-03-15');
+    });
+    test('Completing a recurring task moves it to the next date and keeps it open', (s) => {
+      const r = s.toggleTask(CAROL, 't22');
+      const today = isoDate(0);
+      assert(r.rolledOver && !r.completed, 'should roll over, not complete');
+      assert(r.dueDate > today, 'next date after today');
+      assert(![0, 6].includes(new Date(r.dueDate + 'T12:00').getDay()), 'weekday rule skips weekends');
+      assert(r.lastCompletedAt, 'remembers when it was last done');
+    });
+    test('Completing a recurring task reopens its subtasks for the next round', (s) => {
+      const sub = s.createSubtask(ALICE, 't20', { title: 'Export bank balances' });
+      s.toggleTask(ALICE, sub.id);
+      const before = s.getTask(ALICE, 't20').dueDate;
+      s.toggleTask(ALICE, 't20');
+      eq(s.getTask(ALICE, sub.id).completed, false);
+      eq(s.getTask(ALICE, 't20').dueDate, nextDueDate(before, 'weekly'));
+    });
+    test('Repeat, time and reminder need a due date; bad values are rejected', (s) => {
+      throws(() => s.createTask(BOB, WEB, { title: 'x', recurrence: 'weekly' }), ValidationError);
+      throws(() => s.createTask(BOB, WEB, { title: 'x', dueTime: '10:00' }), ValidationError);
+      throws(() => s.createTask(BOB, WEB, { title: 'x', reminder: 30 }), ValidationError);
+      throws(() => s.createTask(BOB, WEB, { title: 'x', dueDate: '2026-12-01', dueTime: '25:00' }), ValidationError);
+      throws(() => s.createTask(BOB, WEB, { title: 'x', dueDate: '2026-12-01', recurrence: 'hourly' }), ValidationError);
+      throws(() => s.createTask(BOB, WEB, { title: 'x', dueDate: '2026-12-01', reminder: 7 }), ValidationError);
+    });
+    test('Clearing the due date also clears time, repeat and reminder', (s) => {
+      const t = s.updateTask(ALICE, 't20', { dueDate: '' });
+      eq([t.dueDate, t.dueTime, t.recurrence, t.reminder], [null, null, null, null]);
+    });
+    test('Reminder time: minutes before the due time; date-only tasks count as 09:00', () => {
+      eq(reminderAt({ dueDate: '2026-10-11', dueTime: '15:00', reminder: 30 }).getTime(), new Date(2026, 9, 11, 14, 30).getTime());
+      eq(reminderAt({ dueDate: '2026-10-11', dueTime: null, reminder: 0 }).getTime(), new Date(2026, 9, 11, 9, 0).getTime());
+      eq(reminderAt({ dueDate: '2026-10-11', dueTime: null, reminder: 1440 }).getTime(), new Date(2026, 9, 10, 9, 0).getTime());
+      eq(reminderAt({ dueDate: '2026-10-11', dueTime: '15:00', reminder: null }), null);
+    });
+    test('Reminders go only to the assignee, once the time has passed', (s) => {
+      // t5: due today 15:00, remind 30 min before, assigned to Dave.
+      eq(ids(s.dueReminders(DAVE, atToday(14, 45))), ['t5']);
+      eq(s.dueReminders(DAVE, atToday(14, 0)).length, 0, 'not yet');
+      eq(s.dueReminders(CAROL, atToday(14, 45)).filter((t) => t.id === 't5').length, 0, 'Carol is not the assignee');
+      eq(s.dueReminders(BOB, atToday(14, 45)).length, 0, 'Bob cannot see the project');
+    });
+  });
+
+  describe('9. Sections and board columns', () => {
+    test('Members see the project\'s sections; non-members cannot', (s) => {
+      eq(s.listSections(DAVE, MOBILE).map((x) => x.name), ['Development', 'Release']);
+      throws(() => s.listSections(BOB, MOBILE), PermissionError);
+    });
+    test('Members can add and rename sections; outsiders cannot', (s) => {
+      const qa = s.createSection(DAVE, MOBILE, 'QA');
+      eq(s.renameSection(DAVE, qa.id, 'Testing').name, 'Testing');
+      throws(() => s.createSection(EVE, WEB, 'Sneaky'), PermissionError);
+      throws(() => s.renameSection(BOB, 's3', 'x'), PermissionError);
+    });
+    test('Tasks can be created in and moved between sections of the same project', (s) => {
+      eq(s.createTask(DAVE, MOBILE, { title: 'Crash analytics', sectionId: 's3' }).sectionId, 's3');
+      eq(s.updateTask(CAROL, 't7', { sectionId: 's3' }).sectionId, 's3');
+      eq(s.updateTask(CAROL, 't7', { sectionId: '' }).sectionId, null, 'back to No section');
+      throws(() => s.createTask(DAVE, MOBILE, { title: 'x', sectionId: 's1' }), ValidationError, 'section from another project');
+    });
+    test('Subtasks and Inbox tasks cannot be put in a section', (s) => {
+      throws(() => s.updateTask(BOB, 't16', { sectionId: 's2' }), ValidationError);
+      throws(() => s.createTask(EVE, null, { title: 'x', sectionId: 's1' }), ValidationError);
+    });
+    test('Only the PM/admin can delete a section; its tasks move to No section', (s) => {
+      throws(() => s.deleteSection(DAVE, 's4'), PermissionError);
+      s.deleteSection(CAROL, 's4');
+      eq(s.listSections(CAROL, MOBILE).map((x) => x.id), ['s3']);
+      ['t5', 't7', 't8'].forEach((id) => eq(s.getTask(CAROL, id).sectionId, null, id));
+    });
+    test('Deleting a project deletes its sections', (s) => {
+      s.deleteProject(ALICE, MOBILE);
+      assert(!s.state.sections.some((x) => x.projectId === MOBILE));
+    });
+  });
+
+  describe('10. Labels, filters and search', () => {
+    test('Labels are normalized: "@Urgent, client-x urgent" → urgent, client-x', () => {
+      eq(normalizeLabels('@Urgent, client-x urgent'), ['urgent', 'client-x']);
+      throws(() => normalizeLabels('hello!'), ValidationError);
+    });
+    test('Members can label tasks', (s) => eq(s.updateTask(DAVE, 't6', { labels: '@bug @android' }).labels, ['bug', 'android']));
+    test('Label list only includes labels from tasks the user can see', (s) => {
+      eq(s.listLabels(BOB).map((l) => l.name), ['design', 'urgent']);
+      eq(s.listLabels(CAROL).map((l) => l.name), ['bug', 'design', 'release', 'urgent']);
+      eq(s.listLabels(EVE), []);
+    });
+    test('@label view respects visibility (Carol sees 2 urgent tasks, Bob 1)', (s) => {
+      eq(ids(s.listTasks(CAROL, { label: 'urgent' })), ['t4', 't6']);
+      eq(ids(s.listTasks(BOB, { label: 'urgent' })), ['t4']);
+    });
+    test('Filter terms: p1 & @label, today | overdue, #Project, #Inbox, no date, recurring', (s) => {
+      eq(ids(s.filterTasks(CAROL, 'p1 & @urgent')), ['t6']);
+      eq(ids(s.filterTasks(BOB, 'today | overdue', { now: atToday(8, 0) })), ['t1', 't4']);
+      eq(ids(s.filterTasks(DAVE, '#Mobile App Launch')), ['t5', 't6', 't7', 't18']);
+      eq(ids(s.filterTasks(EVE, '#Inbox')), ['t13', 't14']);
+      eq(ids(s.filterTasks(EVE, 'no date')), ['t14']);
+      eq(ids(s.filterTasks(ALICE, 'recurring')), ['t20', 't21']);
+    });
+    test('Filter terms: assigned to, negation, search:, next N days', (s) => {
+      eq(ids(s.filterTasks(DAVE, 'assigned to: me')), ['t5', 't6', 't18']);
+      eq(ids(s.filterTasks(BOB, 'assigned to: Carol')), ['t1', 't3', 't16', 't17']);
+      eq(ids(s.filterTasks(BOB, '#Website Redesign & !@urgent & !subtask')), ['t1', 't2', 't3']);
+      eq(ids(s.filterTasks(CAROL, 'search: crash')), ['t6']);
+      eq(ids(s.filterTasks(BOB, 'assigned to: me & next 7 days')), ['t2', 't12']);
+    });
+    test('"Overdue" includes tasks due earlier today once their time has passed', (s) => {
+      assert(!s.filterTasks(DAVE, 'overdue', { now: atToday(14, 0) }).some((t) => t.id === 't5'));
+      assert(s.filterTasks(DAVE, 'overdue', { now: atToday(15, 30) }).some((t) => t.id === 't5'));
+    });
+    test('Filters never reveal tasks outside the user\'s projects', (s) => {
+      eq(ids(s.filterTasks(EVE, 'p1 | p2 | p3 | p4')), ['t13', 't14']);
+      eq(s.filterTasks(BOB, '#Mobile App Launch').length, 0);
+    });
+    test('Invalid filter queries are rejected with a clear message', (s) => {
+      const e = throws(() => s.filterTasks(BOB, 'p1 & banana'), ValidationError);
+      assert(e.message.includes('banana'));
+      throws(() => s.filterTasks(BOB, '  '), ValidationError);
+      throws(() => s.createFilter(BOB, { name: 'Bad', query: 'p9' }), ValidationError);
+    });
+    test('Saved filters are private to their owner', (s) => {
+      eq(s.listFilters(ALICE).map((f) => f.id), ['f1']);
+      eq(s.listFilters(BOB).map((f) => f.id), ['f2']);
+      throws(() => s.getFilter(BOB, 'f1'), PermissionError);
+      throws(() => s.deleteFilter(BOB, 'f1'), PermissionError);
+      throws(() => s.updateFilter(BOB, 'f1', { name: 'x' }), PermissionError);
+      const f = s.createFilter(EVE, { name: 'My P1s', query: 'p1' });
+      eq(s.listFilters(EVE).map((x) => x.id), [f.id]);
+      s.deleteFilter(EVE, f.id);
+      eq(s.listFilters(EVE).length, 0);
+    });
+    test('Search matches title, description and labels within visible tasks only', (s) => {
+      eq(ids(s.searchTasks(CAROL, 'crash')), ['t6']);
+      eq(s.searchTasks(BOB, 'crash').length, 0, 'Bob is not in Mobile App');
+      eq(ids(s.searchTasks(DAVE, 'biometric')), ['t6'], 'description match');
+      eq(ids(s.searchTasks(BOB, 'dentist')), ['t12']);
+      eq(s.searchTasks(ALICE, 'dentist').length, 0, 'personal tasks stay private');
+      eq(ids(s.searchTasks(CAROL, '@release')), ['t5', 't7']);
+    });
+  });
+
+  describe('11. End-to-end story across all 5 users', () => {
     test('Full scenario', (s) => {
       // Alice (admin) starts a project, appoints Bob as PM with Dave as member.
       const p = s.createProject(ALICE, { name: 'Customer Portal', managerId: BOB, memberIds: [DAVE] });

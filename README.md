@@ -9,6 +9,9 @@ A project and task tracker in the style of Todoist, with role-based project acce
 - Tasks have a due date, a priority (P1–P4), an assignee and a description, and can be marked complete
 - **Subtasks**: open a task to add a checklist of subtasks. They show indented under it with a progress count (e.g. 2/4) and can be collapsed
 - **Today**, **Upcoming** and **Assigned to me** views cover all the projects you can see
+- **Repeating tasks** (daily, weekdays, weekly, every 2 weeks, monthly, yearly), **due times** and **reminders**
+- **Sections** inside projects, and a **Board view** (columns you can drag cards between)
+- **Labels** (`@urgent`), **saved filters** with Todoist-style queries (`p1 & @urgent | overdue`) and **search**
 
 ## Run it
 
@@ -35,6 +38,8 @@ The app is a Progressive Web App (PWA). Once it's published on GitHub Pages you 
 After installing, it opens full screen from its own icon and works offline.
 Each phone keeps **its own copy of the data** (there's no shared server yet).
 
+**Reminders** pop up while the app is open (or was recently opened). Tap **🔔 Enable reminders** to get them as phone notifications on Android and desktop. On iPhone they show inside the app. Reminders that arrive while the app is fully closed need the upcoming Supabase back end.
+
 When you change the app, bump `CACHE` in `sw.js` (e.g. `flexo-todo-v2`) so installed phones load the new version.
 
 ## Files
@@ -44,7 +49,7 @@ When you change the app, bump `CACHE` in `sw.js` (e.g. `flexo-todo-v2`) so insta
 | `store.js` | Data model and **all permission rules** (no DOM, unit-testable) |
 | `app.js` | UI rendering and localStorage persistence |
 | `index.html`, `styles.css` | App shell and styling |
-| `tests.html`, `tests.js` | 53 automated tests covering the 5-user scenario |
+| `tests.html`, `tests.js` | 78 automated tests covering the 5-user scenario |
 | `TEST_SCENARIO.md` | User/role matrix, permission table and manual test steps |
 | `manifest.webmanifest`, `sw.js`, `icons/` | Makes it installable on phones and usable offline |
 
