@@ -50,7 +50,7 @@ For each person, enter a temporary password and tick **Auto Confirm User**. Give
 
 In **SQL Editor**, run [`rls_tests.sql`](rls_tests.sql). It creates 5 temporary test users, checks what each one can see and do against the real database rules, then removes them again.
 
-You should see **"All 37 permission checks passed ✔"**. If any check fails, you'll get an error listing which ones. Send it to the developer.
+You should see **"All 46 permission checks passed ✔"**. If any check fails, you'll get an error listing which ones. Send it to the developer.
 
 ## 6. Sign in
 
@@ -62,12 +62,12 @@ Open https://fmcai70.github.io/flexo-todo-app/ and sign in with the email and pa
 
 ## 7. Email notifications (like Todoist)
 
-People get an email when someone **assigns them a task**. They can also choose to get one when a task they created is **completed or reopened**. Notifications always show under the 🔔 bell in the app. Each person picks which ones they want by email (🔔 → **Email settings**).
+People get an email when someone **assigns them a task** or **comments** on a task they created, are assigned to, or commented on. They can also choose to get one when a task they created is **completed or reopened**. Notifications always show under the 🔔 bell in the app. Each person picks which ones they want by email (🔔 → **Email settings**).
 
 Emails are sent from your **Microsoft 365** mailbox through Microsoft's Graph API, not SMTP: Supabase blocks port 587, the only SMTP port Microsoft 365 offers.
 
 ### 7a. Update the database
-Run [`schema.sql`](schema.sql) again in the **SQL Editor**, the same as step 1. It adds the notifications without touching existing data.
+Run [`schema.sql`](schema.sql) again in the **SQL Editor**, the same as step 1. It adds notifications and task comments without touching existing data.
 
 ### 7b. Microsoft 365 side (your IT admin, once)
 Follow [`MICROSOFT365.md`](MICROSOFT365.md). It creates a `todo@flexo.com.ph` mailbox and an app that can send email **only from that mailbox**, and lists the secrets to add to Supabase.

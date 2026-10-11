@@ -11,6 +11,7 @@
 --   • project member   : sees the project, adds/edits/completes tasks
 --   • non-member       : cannot see the project or any of its tasks
 --   • personal (Inbox) tasks and saved filters are private to their owner
+--   • comments follow their task; only the author edits, author/PM/admin delete
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -359,7 +360,7 @@ alter table public.profiles add column if not exists email_on_complete boolean n
 create table if not exists public.notifications (
   id               uuid primary key default gen_random_uuid(),
   user_id          uuid not null references public.profiles (id) on delete cascade,  -- who is notified
-  type             text not null check (type in ('assigned', 'completed', 'uncompleted')),
+  type             text not null check (type in ('assigned', 'completed', 'uncompleted', 'commented')),
   task_id          uuid references public.tasks (id) on delete cascade,
   project_id       uuid references public.projects (id) on delete cascade,
   actor_id         uuid references public.profiles (id) on delete set null,          -- who did it
@@ -452,6 +453,113 @@ create trigger notify_task_change
   after insert or update on public.tasks
   for each row execute function public.notify_task_change();
 
+-- ---------------------------------------------------------------------
+-- Comments on tasks (like Todoist). Whoever can see the task can read and add them.
+-- Only the author can edit; the author, project manager or an admin can delete.
+-- ---------------------------------------------------------------------
+create table if not exists public.comments (
+  id          uuid primary key default gen_random_uuid(),
+  task_id     uuid not null references public.tasks (id) on delete cascade,
+  author_id   uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  body        text not null check (length(trim(body)) > 0 and length(body) <= 5000),
+  created_at  timestamptz not null default now(),
+  edited_at   timestamptz
+);
+create index if not exists comments_task_idx on public.comments (task_id, created_at);
+
+create or replace function public.can_view_task_id(p_task uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.tasks t where t.id = p_task and public.can_view_task(t.project_id, t.created_by));
+$$;
+
+-- PM/admin of the task's project (never for personal Inbox tasks).
+create or replace function public.can_moderate_task(p_task uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.tasks t
+                  where t.id = p_task and t.project_id is not null and public.can_manage_project(t.project_id));
+$$;
+
+alter table public.comments enable row level security;
+drop policy if exists "comments_select" on public.comments;
+create policy "comments_select" on public.comments
+  for select to authenticated using (public.can_view_task_id(task_id));
+drop policy if exists "comments_insert" on public.comments;
+create policy "comments_insert" on public.comments
+  for insert to authenticated
+  with check (author_id = auth.uid() and public.can_view_task_id(task_id));
+drop policy if exists "comments_update" on public.comments;
+create policy "comments_update" on public.comments
+  for update to authenticated
+  using (author_id = auth.uid() and public.can_view_task_id(task_id))
+  with check (author_id = auth.uid() and public.can_view_task_id(task_id));
+drop policy if exists "comments_delete" on public.comments;
+create policy "comments_delete" on public.comments
+  for delete to authenticated
+  using (public.can_view_task_id(task_id) and (author_id = auth.uid() or public.can_moderate_task(task_id)));
+
+-- Editing only changes the text (and marks it edited).
+create or replace function public.protect_comment() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is not null then
+    new.task_id := old.task_id;
+    new.author_id := old.author_id;
+    new.created_at := old.created_at;
+    if new.body is distinct from old.body then new.edited_at := now(); else new.edited_at := old.edited_at; end if;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists protect_comment on public.comments;
+create trigger protect_comment
+  before update on public.comments
+  for each row execute function public.protect_comment();
+
+-- Comment notifications: the task's creator, its assignee, and everyone who commented
+-- before, if they can still see the task. Never the commenter; never for Inbox tasks.
+alter table public.profiles add column if not exists email_on_comment boolean not null default true;
+alter table public.notifications add column if not exists comment_id uuid references public.comments (id) on delete cascade;
+alter table public.notifications add column if not exists comment_text text not null default '';
+alter table public.notifications drop constraint if exists notifications_type_check;
+alter table public.notifications add constraint notifications_type_check
+  check (type in ('assigned', 'completed', 'uncompleted', 'commented'));
+
+create or replace function public.notify_comment() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  actor uuid := auth.uid();
+  t public.tasks;
+  actor_nm text;
+  proj_nm text;
+begin
+  if actor is null then
+    return new;
+  end if;
+  select * into t from public.tasks where id = new.task_id;
+  if t.id is null or t.project_id is null then
+    return new;
+  end if;
+  select name into actor_nm from public.profiles where id = actor;
+  select name into proj_nm from public.projects where id = t.project_id;
+
+  insert into public.notifications
+    (user_id, type, task_id, project_id, comment_id, actor_id, actor_name, task_title, project_name,
+     due_date, due_time, comment_text, recipient_email, send_email)
+  select p.id, 'commented', t.id, t.project_id, new.id, actor, coalesce(actor_nm, 'Someone'), t.title,
+         coalesce(proj_nm, ''), t.due_date, t.due_time, left(new.body, 500), p.email, p.email_on_comment
+    from public.profiles p
+   where p.id <> actor
+     and (p.id = t.created_by or p.id = t.assignee_id
+          or p.id in (select c.author_id from public.comments c where c.task_id = t.id))
+     and (p.role = 'admin' or public.is_user_in_project(t.project_id, p.id));
+  return new;
+end $$;
+
+drop trigger if exists notify_comment on public.comments;
+create trigger notify_comment
+  after insert on public.comments
+  for each row execute function public.notify_comment();
+
 -- Only signed-in users get table access; anonymous visitors get nothing.
 revoke all on all tables in schema public from anon;
 grant select, insert, update, delete on all tables in schema public to authenticated;
@@ -462,7 +570,7 @@ grant select, insert, update, delete on all tables in schema public to authentic
 do $$
 declare t text;
 begin
-  foreach t in array array['profiles', 'projects', 'project_members', 'sections', 'tasks', 'filters', 'notifications'] loop
+  foreach t in array array['profiles', 'projects', 'project_members', 'sections', 'tasks', 'filters', 'notifications', 'comments'] loop
     if not exists (select 1 from pg_publication_tables
                     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
       execute format('alter publication supabase_realtime add table public.%I', t);

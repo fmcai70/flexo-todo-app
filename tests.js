@@ -454,6 +454,69 @@
     });
   });
 
+  describe('12. Comments', () => {
+    const bodies = (s, user, taskId) => s.listComments(user, taskId).map((c) => c.body);
+    test('Project members can comment and read the thread oldest first', (s) => {
+      const before = s.listComments(BOB, 't1').length;
+      s.addComment(CAROL, 't1', '  Draft is ready for review  ');
+      const list = s.listComments(BOB, 't1');
+      eq(list.length, before + 1);
+      eq(list[list.length - 1].body, 'Draft is ready for review', 'trimmed, appended last');
+      eq(list[list.length - 1].authorId, CAROL);
+      eq(s.listComments(ALICE, 't1').length, before + 1, 'admin sees it too');
+    });
+    test('Non-members cannot read or add comments', (s) => {
+      throws(() => s.listComments(DAVE, 't1'), PermissionError);
+      throws(() => s.addComment(DAVE, 't1', 'hi'), PermissionError);
+      throws(() => s.addComment(EVE, 't6', 'hi'), PermissionError);
+      throws(() => s.deleteComment(EVE, 'c3'), PermissionError, 'cannot touch a comment on a task she cannot see');
+    });
+    test('Comments on Inbox tasks are private to the owner, not even the admin', (s) => {
+      const c = s.addComment(EVE, 't13', 'Chapter 3 done');
+      eq(bodies(s, EVE, 't13'), ['Chapter 3 done']);
+      throws(() => s.listComments(ALICE, 't13'), PermissionError);
+      throws(() => s.addComment(ALICE, 't13', 'x'), PermissionError);
+      throws(() => s.deleteComment(ALICE, c.id), PermissionError);
+      eq(s.commentCounts(ALICE)['t13'], undefined, 'not counted for the admin');
+    });
+    test('Empty and over-long comments are rejected', (s) => {
+      throws(() => s.addComment(CAROL, 't1', '   '), ValidationError);
+      throws(() => s.addComment(CAROL, 't1', 'x'.repeat(5001)), ValidationError);
+      s.addComment(CAROL, 't1', 'x'.repeat(5000));
+    });
+    test('Only the author can edit a comment; edits are marked', (s) => {
+      throws(() => s.updateComment(CAROL, 'c1', 'changed by Carol'), PermissionError);
+      throws(() => s.updateComment(ALICE, 'c1', 'changed by admin'), PermissionError);
+      const c = s.updateComment(BOB, 'c1', 'Hero: one headline, one button, one image.');
+      eq(c.body, 'Hero: one headline, one button, one image.');
+      assert(c.editedAt, 'editedAt set');
+      throws(() => s.updateComment(BOB, 'c1', ''), ValidationError);
+    });
+    test('Author, project manager and admin can delete a comment; other members cannot', (s) => {
+      const carols = s.addComment(CAROL, 't5', 'Carol on Mobile');
+      throws(() => s.deleteComment(DAVE, carols.id), PermissionError);
+      const own = s.addComment(DAVE, 't5', 'mine');
+      s.deleteComment(DAVE, own.id); // author
+      s.deleteComment(CAROL, 'c3'); // Carol is PM of Mobile; c3 is Dave's
+      s.deleteComment(ALICE, 'c2'); // admin
+      eq(bodies(s, BOB, 't1'), ['Please keep the hero short: one headline and one button.']);
+      assert(s.canDeleteComment(BOB, 'c1') && !s.canDeleteComment(CAROL, 'c1'), 'canDeleteComment matches the rule');
+    });
+    test('Comment counts cover only visible tasks', (s) => {
+      eq(s.commentCounts(BOB), { t1: 2 });
+      eq(s.commentCounts(DAVE), { t6: 1 });
+      eq(s.commentCounts(CAROL), { t1: 2, t6: 1 });
+      eq(s.commentCounts(EVE), {});
+    });
+    test('Deleting a task, its parent, or its project removes the comments', (s) => {
+      s.addComment(CAROL, 't16', 'on a subtask');
+      s.deleteTask(BOB, 't1'); // removes subtask t16 too
+      eq(s.state.comments.filter((c) => c.taskId === 't1' || c.taskId === 't16').length, 0);
+      s.deleteProject(CAROL, MOBILE);
+      eq(s.state.comments.length, 0);
+    });
+  });
+
   // ---- report --------------------------------------------------------
   const passed = results.filter((r) => r.ok).length;
   const failed = results.length - passed;

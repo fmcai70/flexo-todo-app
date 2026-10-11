@@ -32,6 +32,7 @@
     projects: { id: 'id', name: 'name', color: 'color', managerId: 'manager_id', createdBy: 'created_by', createdAt: 'created_at' },
     sections: { id: 'id', projectId: 'project_id', name: 'name', createdAt: 'created_at' },
     filters: { id: 'id', ownerId: 'owner_id', name: 'name', query: 'query', createdAt: 'created_at' },
+    comments: { id: 'id', taskId: 'task_id', authorId: 'author_id', body: 'body', createdAt: 'created_at', editedAt: 'edited_at' },
     tasks: {
       id: 'id', projectId: 'project_id', parentId: 'parent_id', sectionId: 'section_id', title: 'title',
       description: 'description', createdBy: 'created_by', assigneeId: 'assignee_id', dueDate: 'due_date',
@@ -96,10 +97,18 @@
   }
 
   // ---- load ------------------------------------------------------------
+  // False until schema.sql has been re-run with the comments table; the app then hides comments.
+  let hasComments = false;
+
   async function loadState() {
     const tables = ['profiles', 'projects', 'project_members', 'sections', 'tasks', 'filters'];
-    const results = await Promise.all(tables.map((t) => sb.from(t).select('*').limit(10000)));
+    const [results, commentResult] = await Promise.all([
+      Promise.all(tables.map((t) => sb.from(t).select('*').limit(10000))),
+      sb.from('comments').select('*').limit(20000),
+    ]);
     const [profiles, projects, members, sections, tasks, filters] = results.map(check);
+    hasComments = !commentResult.error;
+    const comments = hasComments ? commentResult.data : [];
     return {
       version: 2,
       users: profiles
@@ -113,6 +122,7 @@
       sections: sections.map((s) => fromRow('sections', s)).sort((x, y) => x.createdAt.localeCompare(y.createdAt)),
       filters: filters.map((f) => fromRow('filters', f)).sort((x, y) => x.createdAt.localeCompare(y.createdAt)),
       tasks: tasks.map((t) => Object.assign(fromRow('tasks', t), { labels: t.labels || [] })),
+      comments: comments.map((c) => fromRow('comments', c)),
     };
   }
 
@@ -149,6 +159,7 @@
     const S = diffById(prev.sections, next.sections);
     const T = diffById(prev.tasks, next.tasks);
     const F = diffById(prev.filters, next.filters);
+    const C = diffById(prev.comments || [], next.comments || []);
     const pairs = (st) => new Set(st.projects.flatMap((p) => p.memberIds.map((u) => p.id + '|' + u)));
     const before = pairs(prev);
     const after = pairs(next);
@@ -170,9 +181,14 @@
     for (const c of T.changed('tasks')) await update('tasks', c.item.id, toRow('tasks', c.item, c.keys));
     await insert('filters', F.added.map((f) => toRow('filters', f)));
     for (const c of F.changed('filters')) await update('filters', c.item.id, toRow('filters', c.item, c.keys));
+    await insert('comments', C.added.map((c) => toRow('comments', c)));
+    // Only the text changes; the database stamps edited_at itself.
+    for (const c of C.changed('comments')) await update('comments', c.item.id, toRow('comments', c.item, ['body']));
 
-    // Deletes: children before parents (subtasks and project contents also cascade in the database).
+    // Deletes: children before parents (subtasks, comments and project contents also cascade in the database).
     const goneProjects = new Set(P.removed.map((p) => p.id));
+    const goneTasks = new Set(T.removed.map((t) => t.id));
+    await remove('comments', C.removed.filter((c) => !goneTasks.has(c.taskId)).map((c) => c.id));
     await remove('tasks', T.removed.filter((t) => !goneProjects.has(t.projectId)).map((t) => t.id));
     await remove('sections', S.removed.filter((s) => !goneProjects.has(s.projectId)).map((s) => s.id));
     await remove('filters', F.removed.map((f) => f.id));
@@ -188,6 +204,9 @@
     if (ids.length) check(await sb.from('notifications').update({ read_at: new Date().toISOString() }).in('id', ids));
   }
   async function getEmailPrefs(userId) {
+    // email_on_comment only exists once schema.sql has been re-run with comments.
+    const res = await sb.from('profiles').select('email, email_on_assign, email_on_complete, email_on_comment').eq('id', userId).single();
+    if (!res.error) return res.data;
     return check(await sb.from('profiles').select('email, email_on_assign, email_on_complete').eq('id', userId).single());
   }
   async function setEmailPrefs(userId, prefs) {
@@ -213,6 +232,7 @@
     linkError, // e.g. "Email link is invalid or has expired"
     getSession, signIn, sendSignInLink, sendPasswordReset, setPassword, signOut, onAuth, updateMyName,
     loadState, pushDiff, subscribe, unsubscribe,
+    get hasComments() { return hasComments; },
     loadNotifications, markNotificationsRead, getEmailPrefs, setEmailPrefs,
   };
 })();

@@ -26,6 +26,7 @@ declare
   t_mob uuid := gen_random_uuid();
   t_eve uuid := gen_random_uuid();
   f_alice uuid := gen_random_uuid();
+  cm uuid := gen_random_uuid();
   n int;
   txt text;
   failures text[] := '{}';
@@ -205,6 +206,49 @@ begin
   select count(*) into n from public.notifications where user_id = b;
   checks := checks + 1; if n <> 0 then failures := failures || 'Bob was notified about his own actions'; end if;
 
+  -- ---- 6. Comments -----------------------------------------------------
+  perform set_config('request.jwt.claims', json_build_object('sub', c, 'role', 'authenticated')::text, true);
+  insert into public.comments (id, task_id, author_id, body) values (cm, t_web, c, 'Draft is ready');
+  checks := checks + 1;
+  begin
+    insert into public.comments (task_id, author_id, body) values (t_web, b, 'Pretending to be Bob');
+    failures := failures || 'Carol could post a comment as Bob';
+  exception when others then null;
+  end;
+  update public.comments set body = 'Draft v2 is ready', task_id = t_mob where id = cm;
+  select task_id::text || '|' || body || '|' || (edited_at is not null)::text into txt from public.comments where id = cm;
+  checks := checks + 1; if txt <> t_web::text || '|Draft v2 is ready|true' then failures := failures || format('Comment edit should change only the text and mark it edited, got %s', txt); end if;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
+  select count(*) into n from public.comments where task_id = t_web;
+  checks := checks + 1; if n <> 1 then failures := failures || 'Bob (PM) could not read Carol''s comment'; end if;
+  select count(*) into n from public.notifications where user_id = b and type = 'commented' and comment_id = cm;
+  checks := checks + 1; if n <> 1 then failures := failures || format('Bob should get 1 "commented" notification, has %s', n); end if;
+  update public.comments set body = 'Edited by Bob' where id = cm;
+  get diagnostics n = row_count;
+  checks := checks + 1; if n <> 0 then failures := failures || 'Bob could edit Carol''s comment'; end if;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', d, 'role', 'authenticated')::text, true);
+  select count(*) into n from public.comments where id = cm;
+  checks := checks + 1; if n <> 0 then failures := failures || 'Dave (non-member) could read a Website comment'; end if;
+  checks := checks + 1;
+  begin
+    insert into public.comments (task_id, author_id, body) values (t_web, d, 'Sneaky comment');
+    failures := failures || 'Dave (non-member) could comment on a Website task';
+  exception when others then null;
+  end;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', e, 'role', 'authenticated')::text, true);
+  insert into public.comments (task_id, author_id, body) values (t_eve, e, 'Size 42');
+  perform set_config('request.jwt.claims', json_build_object('sub', a, 'role', 'authenticated')::text, true);
+  select count(*) into n from public.comments where task_id = t_eve;
+  checks := checks + 1; if n <> 0 then failures := failures || 'Admin could read a comment on Eve''s personal task'; end if;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
+  delete from public.comments where id = cm;
+  get diagnostics n = row_count;
+  checks := checks + 1; if n <> 1 then failures := failures || 'Bob (PM) could not delete a comment in his project'; end if;
+
   perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
   insert into public.project_members (project_id, user_id) values (web, e);
   perform set_config('request.jwt.claims', json_build_object('sub', e, 'role', 'authenticated')::text, true);
@@ -232,6 +276,7 @@ begin
   delete from public.tasks where project_id in (web, mob, fin) or created_by in (a, b, c, d, e);
   delete from public.projects where id in (web, mob, fin);
   delete from public.filters where owner_id in (a, b, c, d, e);
+  delete from public.comments where author_id in (a, b, c, d, e);
   delete from public.notifications where user_id in (a, b, c, d, e);
   delete from auth.users where id in (a, b, c, d, e);
 

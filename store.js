@@ -11,6 +11,9 @@
  * only the user who created them can see or change them, not even an admin.
  * Saved filters are private to the user who made them as well.
  *
+ * Comments follow their task: whoever can see the task can read and add comments.
+ * Only the author can edit a comment; the author, project manager or an admin can delete one.
+ *
  * The store is plain JS with no DOM access so it can be unit tested (see tests.html).
  */
 (function (global) {
@@ -218,6 +221,11 @@
         task('t21', null, 'Pay electricity bill', 'u1', 'u1', 6, 2, { recurrence: 'monthly' }),
         task('t22', null, 'Plan tomorrow', 'u3', 'u3', 0, 3, { recurrence: 'weekdays', dueTime: '17:30', reminder: 10 }),
       ],
+      comments: [
+        { id: 'c1', taskId: 't1', authorId: 'u2', body: 'Please keep the hero short: one headline and one button.', createdAt: now, editedAt: null },
+        { id: 'c2', taskId: 't1', authorId: 'u3', body: 'Will do. First draft by end of day.', createdAt: now, editedAt: null },
+        { id: 'c3', taskId: 't6', authorId: 'u4', body: 'Only happens when biometric login is on. Logs attached to the ticket.', createdAt: now, editedAt: null },
+      ],
     };
   }
 
@@ -225,6 +233,7 @@
   function normalize(state) {
     state.sections = state.sections || [];
     state.filters = state.filters || [];
+    state.comments = state.comments || [];
     state.tasks.forEach((t) => {
       ['parentId', 'sectionId', 'dueTime', 'recurrence', 'reminder', 'lastCompletedAt'].forEach((k) => { if (t[k] === undefined) t[k] = null; });
       if (!Array.isArray(t.labels)) t.labels = [];
@@ -427,6 +436,7 @@
       state.projects = state.projects.filter((p) => p.id !== projectId);
       state.tasks = state.tasks.filter((t) => t.projectId !== projectId);
       state.sections = state.sections.filter((s) => s.projectId !== projectId);
+      pruneComments();
       notify();
     }
 
@@ -614,8 +624,73 @@
       if (t.createdBy !== actorId && (t.projectId === null || !canManage(actorId, t.projectId))) {
         throw new PermissionError('Only the task creator, project manager, or an admin can delete this task');
       }
-      // Subtasks go with their parent.
+      // Subtasks (and every comment on them) go with their parent.
       state.tasks = state.tasks.filter((x) => x.id !== taskId && x.parentId !== taskId);
+      pruneComments();
+      notify();
+    }
+
+    // ---- comments ------------------------------------------------------
+    const MAX_COMMENT = 5000;
+    function pruneComments() {
+      const ids = new Set(state.tasks.map((t) => t.id));
+      state.comments = state.comments.filter((c) => ids.has(c.taskId));
+    }
+    function commentBody(body) {
+      const b = String(body == null ? '' : body).trim();
+      if (!b) throw new ValidationError('Comment is empty');
+      if (b.length > MAX_COMMENT) throw new ValidationError('Comment is too long (max ' + MAX_COMMENT + ' characters)');
+      return b;
+    }
+    function findComment(actorId, commentId) {
+      const c = state.comments.find((x) => x.id === commentId);
+      if (!c) throw new PermissionError('You do not have access to this comment');
+      requireTask(actorId, c.taskId);
+      return c;
+    }
+
+    /** Oldest first, like a chat thread. */
+    function listComments(actorId, taskId) {
+      requireTask(actorId, taskId);
+      return clone(state.comments.filter((c) => c.taskId === taskId))
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id, undefined, { numeric: true }));
+    }
+
+    /** { taskId: number of comments } for every task the actor can see. */
+    function commentCounts(actorId) {
+      const visible = new Set(visibleTasks(actorId).map((t) => t.id));
+      const counts = {};
+      state.comments.forEach((c) => { if (visible.has(c.taskId)) counts[c.taskId] = (counts[c.taskId] || 0) + 1; });
+      return counts;
+    }
+
+    function addComment(actorId, taskId, body) {
+      requireTask(actorId, taskId);
+      const c = { id: newId('c'), taskId, authorId: actorId, body: commentBody(body), createdAt: new Date().toISOString(), editedAt: null };
+      state.comments.push(c);
+      notify();
+      return clone(c);
+    }
+
+    function updateComment(actorId, commentId, body) {
+      const c = findComment(actorId, commentId);
+      if (c.authorId !== actorId) throw new PermissionError('Only the author can edit a comment');
+      const b = commentBody(body);
+      if (b === c.body) return clone(c);
+      c.body = b;
+      c.editedAt = new Date().toISOString();
+      notify();
+      return clone(c);
+    }
+
+    const canDeleteComment = (actorId, c, t) => c.authorId === actorId || (t.projectId !== null && canManage(actorId, t.projectId));
+
+    function deleteComment(actorId, commentId) {
+      const c = findComment(actorId, commentId);
+      if (!canDeleteComment(actorId, c, findTask(c.taskId))) {
+        throw new PermissionError('Only the author, project manager, or an admin can delete this comment');
+      }
+      state.comments = state.comments.filter((x) => x.id !== commentId);
       notify();
     }
 
@@ -707,6 +782,11 @@
       addMember, removeMember, setManager,
       listSections, createSection, renameSection, deleteSection,
       listTasks, getTask, createTask, createSubtask, listSubtasks, updateTask, toggleTask, deleteTask,
+      listComments, commentCounts, addComment, updateComment, deleteComment,
+      canDeleteComment: (actorId, commentId) => {
+        const c = findComment(actorId, commentId);
+        return canDeleteComment(actorId, c, findTask(c.taskId));
+      },
       listLabels, searchTasks, filterTasks,
       listFilters, getFilter, createFilter, updateFilter, deleteFilter,
       dueReminders,

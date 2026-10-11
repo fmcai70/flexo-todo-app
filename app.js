@@ -30,6 +30,9 @@
   let showCompleted = false;
   const viewModes = loadJSON(VIEWMODE_KEY, {}); // projectId -> 'list' | 'board'
   const collapsed = new Set(); // parent task ids whose subtasks are hidden
+  let commentCounts = {}; // taskId -> number of comments, refreshed on every render
+  // Shared mode needs the comments table (schema.sql re-run); until then comments stay hidden.
+  const commentsOn = () => mode === 'demo' || !!(Cloud && Cloud.hasComments);
 
   // ---- helpers -------------------------------------------------------
   const $ = (id) => document.getElementById(id);
@@ -103,6 +106,7 @@
         (current.type === 'filter' && !store.listFilters(currentUser).some((f) => f.id === current.id))) {
       current = { type: 'view', id: 'today' };
     }
+    commentCounts = commentsOn() ? store.commentCounts(currentUser) : {};
     renderTopbar();
     renderSidebar();
     renderMain();
@@ -355,6 +359,7 @@
         t.description && !opts.card ? el('div', { class: 'desc' }, t.description) : null,
         el('div', { class: 'meta-row' },
           subBadge,
+          commentCounts[t.id] ? el('span', { class: 'comment-badge', title: commentCounts[t.id] + ' comment' + (commentCounts[t.id] === 1 ? '' : 's') }, '💬 ' + commentCounts[t.id]) : null,
           formatDue(t),
           t.recurrence ? el('span', { title: RECURRENCE[t.recurrence] }, '🔁') : null,
           t.reminder != null ? el('span', { title: 'Reminder: ' + REMINDERS[t.reminder] }, '⏰') : null,
@@ -529,7 +534,9 @@
   function openTaskDialog(taskId) {
     const t = attempt(() => store.getTask(currentUser, taskId));
     if (!t) return;
+    if (editingTaskId !== taskId || !$('taskDialog').open) $('newComment').value = '';
     editingTaskId = taskId;
+    editingCommentId = null;
     const p = t.projectId === null ? null : store.getProject(currentUser, t.projectId);
     $('editTitle').value = t.title;
     $('editDesc').value = t.description;
@@ -565,7 +572,106 @@
       $('newSubtask').value = '';
       renderSubtaskList();
     }
+    renderComments();
     if (!$('taskDialog').open) $('taskDialog').showModal();
+  }
+
+  // ---- comments --------------------------------------------------------
+  let editingCommentId = null;
+
+  // Plain text with clickable web links (text nodes only, so nothing typed can run as HTML).
+  function linkify(text) {
+    return text.split(/(https?:\/\/[^\s<]*[^\s<.,;:!?)\]'"])/g).map((part, i) => (i % 2
+      ? el('a', { href: part, target: '_blank', rel: 'noopener noreferrer' }, part)
+      : part));
+  }
+
+  function renderComments() {
+    $('commentSection').hidden = !commentsOn();
+    if (!commentsOn()) return;
+    const list = store.listComments(currentUser, editingTaskId);
+    $('commentCount').textContent = list.length || '';
+    $('commentHint').textContent = (store.getTask(currentUser, editingTaskId).projectId === null
+      ? '🔒 Only you can see comments on your personal tasks.'
+      : 'Everyone on the project can read comments.') + ' Ctrl+Enter sends.';
+    $('commentList').replaceChildren(...(list.length ? list.map(renderComment)
+      : [el('li', { class: 'empty' }, 'No comments yet. Ask a question or share an update.')]));
+  }
+
+  function renderComment(c) {
+    const author = userById(c.authorId) || { id: c.authorId, name: 'Former user' };
+    const head = el('div', { class: 'comment-head' },
+      el('b', null, author.name),
+      el('span', { class: 'meta', title: new Date(c.createdAt).toLocaleString() }, timeAgo(c.createdAt) + (c.editedAt ? ' · edited' : '')),
+      el('div', { class: 'spacer' }),
+      c.authorId === currentUser && editingCommentId !== c.id ? el('button', {
+        type: 'button', class: 'icon-btn', title: 'Edit comment', 'aria-label': 'Edit comment',
+        onclick: () => { editingCommentId = c.id; renderComments(); },
+      }, '✎') : null,
+      store.canDeleteComment(currentUser, c.id) ? el('button', {
+        type: 'button', class: 'icon-btn', title: 'Delete comment', 'aria-label': 'Delete comment',
+        onclick: () => deleteComment(c),
+      }, '🗑') : null);
+
+    let body;
+    if (editingCommentId === c.id) {
+      const box = el('textarea', { rows: 3, maxlength: 5000, 'aria-label': 'Edit comment' });
+      box.value = c.body;
+      const cancel = () => { editingCommentId = null; renderComments(); };
+      const saveEdit = () => attempt(() => {
+        store.updateComment(currentUser, c.id, box.value);
+        editingCommentId = null;
+        renderComments();
+      });
+      box.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveEdit(); }
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); }
+      });
+      body = el('div', { class: 'comment-edit' }, box,
+        el('div', { class: 'row' }, el('div', { class: 'spacer' }),
+          el('button', { type: 'button', class: 'btn small ghost', onclick: cancel }, 'Cancel'),
+          el('button', { type: 'button', class: 'btn small primary', onclick: saveEdit }, 'Save')));
+      setTimeout(() => box.focus(), 0);
+    } else {
+      body = el('div', { class: 'comment-body' }, ...linkify(c.body));
+    }
+    return el('li', { class: 'comment' }, avatar(author), el('div', { class: 'comment-main' }, head, body));
+  }
+
+  function addComment() {
+    const body = $('newComment').value;
+    if (!body.trim()) return;
+    attempt(() => {
+      store.addComment(currentUser, editingTaskId, body);
+      $('newComment').value = '';
+      renderComments();
+      $('commentList').scrollTop = $('commentList').scrollHeight;
+      render();
+    });
+  }
+
+  function deleteComment(c) {
+    if (!confirm('Delete this comment?')) return;
+    attempt(() => {
+      store.deleteComment(currentUser, c.id);
+      if (editingCommentId === c.id) editingCommentId = null;
+      renderComments();
+      render();
+    });
+  }
+
+  $('addCommentBtn').addEventListener('click', addComment);
+  $('newComment').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addComment(); }
+  });
+
+  // Someone else changed things while this task is open: refresh its subtasks and comments.
+  function refreshOpenTask() {
+    if (!$('taskDialog').open || !editingTaskId) return;
+    let t;
+    try { t = store.getTask(currentUser, editingTaskId); } catch (e) { return; } // deleted or no longer visible
+    if (!t.parentId) renderSubtaskList();
+    if (!editingCommentId) renderComments();
   }
 
   const canDelete = (t, p) => t.createdBy === currentUser || !!(p && store.canManage(currentUser, p.id));
@@ -621,8 +727,12 @@
       };
       if (!$('editSectionWrap').hidden) patch.sectionId = $('editSection').value;
       store.updateTask(currentUser, editingTaskId, patch);
+      // A comment typed but not sent yet is posted with the save rather than lost.
+      const draft = $('newComment').value;
+      if (commentsOn() && draft.trim()) store.addComment(currentUser, editingTaskId, draft);
+      $('newComment').value = '';
       $('taskDialog').close();
-      toast('Task updated');
+      toast(commentsOn() && draft.trim() ? 'Task updated and comment posted' : 'Task updated');
       render();
     } catch (err) { $('taskError').textContent = err.message; }
   });
@@ -736,7 +846,8 @@
   let notifications = [];
   let notificationsAvailable = false; // false until the database has the notifications table
   let seenNotificationIds = null;
-  const NOTIF_VERB = { assigned: 'assigned you', completed: 'completed', uncompleted: 'reopened' };
+  const NOTIF_VERB = { assigned: 'assigned you', completed: 'completed', uncompleted: 'reopened', commented: 'commented on' };
+  const NOTIF_ICON = { assigned: '👤', completed: '✅', uncompleted: '↩', commented: '💬' };
 
   function timeAgo(iso) {
     const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
@@ -755,7 +866,7 @@
         list.filter((n) => !n.read_at && !seenNotificationIds.has(n.id)).reverse().forEach((n) => {
           const text = (n.actor_name || 'Someone') + ' ' + NOTIF_VERB[n.type] + ': ' + n.task_title;
           toast('🔔 ' + text, false, 6000);
-          systemNotify('🔔 ' + text, n.project_name, n.id);
+          systemNotify('🔔 ' + text, n.type === 'commented' && n.comment_text ? n.comment_text : n.project_name, n.id);
         });
       }
       seenNotificationIds = new Set(list.map((n) => n.id));
@@ -777,16 +888,17 @@
 
   function renderNotificationList() {
     if (!notifications.length) {
-      $('notifList').replaceChildren(el('li', { class: 'empty' }, 'No notifications yet. You\'ll see tasks assigned to you here.'));
+      $('notifList').replaceChildren(el('li', { class: 'empty' }, 'No notifications yet. You\'ll see tasks assigned to you and new comments here.'));
       return;
     }
     $('notifList').replaceChildren(...notifications.map((n) => el('li', {
       class: n.read_at ? '' : 'unread',
       onclick: () => openNotification(n),
     },
-    el('span', { class: 'notif-icon' }, n.type === 'assigned' ? '👤' : n.type === 'completed' ? '✅' : '↩'),
+    el('span', { class: 'notif-icon' }, NOTIF_ICON[n.type] || '🔔'),
     el('div', { class: 'notif-body' },
       el('div', null, el('b', null, n.actor_name || 'Someone'), ' ' + NOTIF_VERB[n.type] + ' ', el('b', null, n.task_title)),
+      n.type === 'commented' && n.comment_text ? el('div', { class: 'notif-quote' }, '“' + n.comment_text + '”') : null,
       el('div', { class: 'meta' }, [n.project_name, n.due_date ? 'due ' + dateLabel(n.due_date) + (n.due_time ? ' ' + timeLabel(n.due_time) : '') : '', timeAgo(n.created_at)]
         .filter(Boolean).join(' · '))))));
   }
@@ -800,6 +912,10 @@
     $('notifDialog').close();
     if (n.task_id && store.listTasks(currentUser, { includeCompleted: true }).some((t) => t.id === n.task_id)) {
       openTaskDialog(n.task_id);
+      if (n.type === 'commented') {
+        $('commentSection').scrollIntoView({ block: 'nearest' });
+        $('commentList').scrollTop = $('commentList').scrollHeight;
+      }
     } else {
       toast('That task is no longer available', true);
     }
@@ -812,6 +928,8 @@
       const prefs = await Cloud.getEmailPrefs(currentUser);
       $('prefAssign').checked = prefs.email_on_assign;
       $('prefComplete').checked = prefs.email_on_complete;
+      $('prefCommentWrap').hidden = prefs.email_on_comment === undefined;
+      $('prefComment').checked = !!prefs.email_on_comment;
       $('prefEmail').textContent = prefs.email;
     } catch (e) { $('emailSettings').hidden = true; }
   });
@@ -831,6 +949,7 @@
   }
   $('prefAssign').addEventListener('change', (e) => savePref('email_on_assign', e.target));
   $('prefComplete').addEventListener('change', (e) => savePref('email_on_complete', e.target));
+  $('prefComment').addEventListener('change', (e) => savePref('email_on_comment', e.target));
 
   // ---- global controls -----------------------------------------------
   $('userSelect').addEventListener('change', (e) => {
@@ -1020,7 +1139,7 @@
       if (pendingWrites) { reloadWanted = true; return; } // a change started meanwhile; reload after it
       store = createStore(state, onCloudChange, { newId: () => crypto.randomUUID() });
       synced = store.state;
-      if (!$('appShell').hidden) render();
+      if (!$('appShell').hidden) { render(); refreshOpenTask(); }
       refreshNotifications(true);
     } catch (err) {
       setSync('Offline');

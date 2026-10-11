@@ -17,12 +17,13 @@
 //   APP_URL           https://fmcai70.github.io/flexo-todo-app/
 
 type Notification = {
-  type: "assigned" | "completed" | "uncompleted";
+  type: "assigned" | "completed" | "uncompleted" | "commented";
   actor_name: string;
   task_title: string;
   project_name: string;
   due_date: string | null;
   due_time: string | null;
+  comment_text?: string;
   recipient_email: string;
   send_email: boolean;
 };
@@ -46,7 +47,7 @@ function formatDue(date: string | null, time: string | null): string {
 
 function compose(n: Notification) {
   const who = n.actor_name || "Someone";
-  const verb = { assigned: "assigned you", completed: "completed", uncompleted: "reopened" }[n.type];
+  const verb = { assigned: "assigned you", completed: "completed", uncompleted: "reopened", commented: "commented on" }[n.type];
   const subject = `${who} ${verb}: ${n.task_title}`;
   const due = formatDue(n.due_date, n.due_time);
   const appUrl = env("APP_URL", "https://fmcai70.github.io/flexo-todo-app/");
@@ -58,6 +59,7 @@ function compose(n: Notification) {
     <div style="border:1px solid #eee;border-top:none;border-radius:0 0 8px 8px;padding:18px">
       <p style="margin:0 0 6px;color:#555">${escapeHtml(who)} ${verb}:</p>
       <p style="margin:0 0 12px;font-size:18px;font-weight:700">${escapeHtml(n.task_title)}</p>
+      ${n.type === "commented" && n.comment_text ? `<blockquote style="margin:0 0 14px;padding:10px 14px;background:#f6f6f6;border-left:3px solid #dc4c3e;border-radius:4px;white-space:pre-wrap">${escapeHtml(n.comment_text)}</blockquote>` : ""}
       ${details.map((d) => `<p style="margin:0 0 4px;color:#555">${escapeHtml(d)}</p>`).join("")}
       <p style="margin:18px 0 0"><a href="${escapeHtml(appUrl)}"
          style="background:#dc4c3e;color:#fff;text-decoration:none;padding:9px 16px;border-radius:6px;display:inline-block">Open Flexo Todo</a></p>

@@ -199,6 +199,15 @@
           <button class="btn small" type="button" id="addSubtaskBtn">Add</button>
         </div>
       </div>
+      <div id="commentSection" class="comments">
+        <div class="subtask-head">Comments <span id="commentCount"></span></div>
+        <ul id="commentList" class="comment-list"></ul>
+        <div class="comment-add">
+          <textarea id="newComment" rows="2" maxlength="5000" placeholder="Write a comment…" aria-label="New comment"></textarea>
+          <button class="btn small primary" type="button" id="addCommentBtn">Comment</button>
+        </div>
+        <p class="meta comment-hint" id="commentHint"></p>
+      </div>
       <p class="error" id="taskError"></p>
       <div class="dialog-actions">
         <button class="btn danger ghost" type="button" id="taskDelete">Delete</button>
@@ -222,6 +231,7 @@
       <summary>✉ Email settings</summary>
       <label><input type="checkbox" id="prefAssign"> Email me when someone assigns a task to me</label>
       <label><input type="checkbox" id="prefComplete"> Email me when someone completes or reopens a task I created</label>
+      <label id="prefCommentWrap"><input type="checkbox" id="prefComment"> Email me about new comments on tasks I created, am assigned to, or commented on</label>
       <p class="meta">Emails go to <b id="prefEmail"></b>. Notifications always appear here in the app.</p>
     </details>
   </dialog>

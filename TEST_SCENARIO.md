@@ -34,6 +34,7 @@ Other rules:
 - **Labels, filters and search** only ever show tasks you can already see. **Saved filters are private** to the person who made them.
 - **Repeating tasks** are never marked done. Completing one moves it to its next date and reopens its subtasks. Repeat, time and reminder all need a due date.
 - **Reminders** go to the task's assignee only.
+- **Comments** follow their task: anyone who can see the task can read and add comments. Only the author can edit one; the author, PM or admin can delete it. Comments on Inbox tasks are private, even from the admin.
 - **Subtasks** follow their parent: same project, same visibility. Completing a task completes its subtasks, reopening a subtask reopens the parent, and deleting a task deletes its subtasks. They go one level deep.
 - **Personal tasks** sit in each user's private **Inbox** and also show in their Today, Upcoming and Assigned to me views. Only the creator can see them, **not even the admin**, and they can't be assigned to anyone else.
 - Tasks can only be assigned to the project's PM or members.
@@ -42,7 +43,7 @@ Other rules:
 
 ## Automated tests
 
-Open `tests.html` in a browser. It runs 78 checks in 11 groups and shows **PASS/FAIL** in the tab title:
+Open `tests.html` in a browser. It runs 86 checks in 12 groups and shows **PASS/FAIL** in the tab title:
 
 1. Project visibility per user
 2. Non-members are blocked from direct access (by id, task edits, cross-project views)
@@ -55,6 +56,7 @@ Open `tests.html` in a browser. It runs 78 checks in 11 groups and shows **PASS/
 9. Sections and board columns
 10. Labels, filters and search
 11. An end-to-end story across all 5 users
+12. Comments (who can read, add, edit and delete them)
 
 ## Manual walkthrough
 
@@ -95,3 +97,7 @@ On the sign-in screen, tap **Try the demo**, then use the **Demo user** dropdown
 | 31 | Bob | Click label **urgent** | Only "Set up staging site" (Mobile App tasks stay hidden) |
 | 32 | Bob / Carol | Search "release" | Bob: no results. Carol: 2 Mobile App tasks |
 | 33 | Dave | Tap **🔔 Enable reminders** → Allow. Keep the app open at 2:30 PM | "Finalize app store screenshots" reminder pops up (it's due 3:00 PM) |
+| 34 | Bob | Website Redesign → open "Draft new homepage wireframe" | **Comments 2**: Bob's note and Carol's reply. The row shows 💬 2 |
+| 35 | Bob | Type a comment with a link (e.g. `https://flexo.com.ph`) → **Comment** | Appears at the bottom, link is clickable. Row shows 💬 3 |
+| 36 | Bob | ✎ on your comment → change it → Save | Text updates and says *edited*. Carol's comment has 🗑 (Bob is PM) but no ✎ |
+| 37 | Dave | Open "Fix login crash on Android" | Sees his own comment. Can't see any Website comments |
