@@ -1,18 +1,20 @@
-// Flexo Todo: emails a notification through your SMTP server.
+// Flexo Todo: emails a notification through Microsoft 365 (Microsoft Graph API).
 //
 // Called by a Supabase Database Webhook whenever a row is added to public.notifications
 // (see supabase/SETUP.md, "Email notifications"). It only sends when the row says
 // send_email = true, which the database sets from each person's email settings.
 //
+// Why Graph and not SMTP: Supabase blocks outgoing SMTP on ports 25/587, and Microsoft 365
+// only offers SMTP on 587. Graph sends over HTTPS and is Microsoft's recommended method.
+// Setup for the Microsoft 365 side: supabase/MICROSOFT365.md
+//
 // Secrets (Supabase → Edge Functions → Secrets):
-//   SMTP_HOST       e.g. mail.flexo.com.ph
-//   SMTP_PORT       465  (Supabase blocks ports 25 and 587; use SSL on 465)
-//   SMTP_USER       the mailbox login
-//   SMTP_PASS       the mailbox password
-//   SMTP_FROM       e.g. Flexo Todo <todo@flexo.com.ph>
-//   WEBHOOK_SECRET  any long random text; the webhook sends the same value
-//   APP_URL         https://fmcai70.github.io/flexo-todo-app/
-import nodemailer from "npm:nodemailer@6.9.16";
+//   MS_TENANT_ID      Directory (tenant) ID of the Entra app
+//   MS_CLIENT_ID      Application (client) ID of the Entra app
+//   MS_CLIENT_SECRET  Client secret VALUE of the Entra app
+//   MAIL_FROM         the mailbox emails are sent from, e.g. todo@flexo.com.ph
+//   WEBHOOK_SECRET    any long random text; the webhook sends the same value
+//   APP_URL           https://fmcai70.github.io/flexo-todo-app/
 
 type Notification = {
   type: "assigned" | "completed" | "uncompleted";
@@ -50,9 +52,6 @@ function compose(n: Notification) {
   const appUrl = env("APP_URL", "https://fmcai70.github.io/flexo-todo-app/");
   const details = [n.project_name && `Project: ${n.project_name}`, due && `Due: ${due}`].filter(Boolean) as string[];
 
-  const text = [subject, "", ...details, "", `Open Flexo Todo: ${appUrl}`, "",
-    "You can turn these emails off in Flexo Todo: tap the bell, then Email settings."].join("\n");
-
   const html = `
   <div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#202020">
     <div style="background:#dc4c3e;color:#fff;padding:14px 18px;border-radius:8px 8px 0 0;font-weight:700">✔ Flexo Todo</div>
@@ -65,7 +64,47 @@ function compose(n: Notification) {
       <p style="margin:18px 0 0;font-size:12px;color:#999">You can turn these emails off in Flexo Todo: tap the 🔔 bell, then Email settings.</p>
     </div>
   </div>`;
-  return { subject, text, html };
+  return { subject, html };
+}
+
+// App-only access token for Microsoft Graph, reused until shortly before it expires.
+let cachedToken: { value: string; expires: number } | null = null;
+async function graphToken(): Promise<string> {
+  if (cachedToken && cachedToken.expires > Date.now() + 60_000) return cachedToken.value;
+  const res = await fetch(`https://login.microsoftonline.com/${env("MS_TENANT_ID")}/oauth2/v2.0/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: env("MS_CLIENT_ID"),
+      client_secret: env("MS_CLIENT_SECRET"),
+      scope: "https://graph.microsoft.com/.default",
+      grant_type: "client_credentials",
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(`Microsoft sign-in failed: ${data.error_description || data.error || res.status}`);
+  cachedToken = { value: data.access_token, expires: Date.now() + data.expires_in * 1000 };
+  return cachedToken.value;
+}
+
+async function sendMail(to: string, subject: string, html: string) {
+  const from = env("MAIL_FROM");
+  const res = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(from)}/sendMail`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${await graphToken()}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: {
+        subject,
+        body: { contentType: "HTML", content: html },
+        toRecipients: [{ emailAddress: { address: to } }],
+      },
+      saveToSentItems: true,
+    }),
+  });
+  if (res.status !== 202) {
+    const text = await res.text();
+    throw new Error(`Microsoft 365 refused to send (${res.status}): ${text.slice(0, 400)}`);
+  }
 }
 
 Deno.serve(async (req) => {
@@ -86,17 +125,9 @@ Deno.serve(async (req) => {
     return new Response("Skipped (email not requested)", { status: 200 });
   }
 
-  const port = Number(env("SMTP_PORT", "465"));
-  const transporter = nodemailer.createTransport({
-    host: env("SMTP_HOST"),
-    port,
-    secure: port === 465, // SSL from the start on 465
-    auth: { user: env("SMTP_USER"), pass: env("SMTP_PASS") },
-  });
-
-  const { subject, text, html } = compose(n);
+  const { subject, html } = compose(n);
   try {
-    await transporter.sendMail({ from: env("SMTP_FROM", env("SMTP_USER")), to: n.recipient_email, subject, text, html });
+    await sendMail(n.recipient_email, subject, html);
     return new Response("Sent", { status: 200 });
   } catch (err) {
     console.error("Email failed:", err);
