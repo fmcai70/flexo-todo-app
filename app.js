@@ -86,10 +86,12 @@
 
   function renderSidebar() {
     const counts = {
+      inbox: store.listTasks(currentUser, { view: 'inbox' }).length,
       today: store.listTasks(currentUser, { view: 'today' }).length,
       upcoming: store.listTasks(currentUser, { view: 'upcoming' }).length,
       mine: store.listTasks(currentUser, { view: 'mine' }).length,
     };
+    $('countInbox').textContent = counts.inbox || '';
     $('countToday').textContent = counts.today || '';
     $('countUpcoming').textContent = counts.upcoming || '';
     $('countMine').textContent = counts.mine || '';
@@ -115,7 +117,8 @@
   function renderMain() {
     const isProject = current.type === 'project';
     const project = isProject ? store.getProject(currentUser, current.id) : null;
-    const titles = { today: 'Today', upcoming: 'Upcoming', mine: 'Assigned to me' };
+    const isInbox = current.type === 'view' && current.id === 'inbox';
+    const titles = { inbox: 'Inbox', today: 'Today', upcoming: 'Upcoming', mine: 'Assigned to me' };
 
     $('viewTitle').replaceChildren(isProject
       ? el('span', null, el('span', { class: 'dot', style: 'display:inline-block;background:' + project.color }), ' ' + project.name)
@@ -133,9 +136,12 @@
       $('membersBar').replaceChildren(...people.map((u) =>
         el('span', { class: 'chip' }, avatar(u), u.name, u.id === project.managerId ? el('span', { class: 'tag manager' }, 'PM') : null)));
     } else {
-      $('viewSub').textContent = current.id === 'today'
-        ? new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) + ' · overdue and due today'
-        : current.id === 'upcoming' ? 'Due after today, across your projects' : 'Tasks assigned to you in any project';
+      $('viewSub').textContent = {
+        inbox: '🔒 Your personal tasks. Only you can see these.',
+        today: new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) + ' · overdue and due today',
+        upcoming: 'Due after today, across your Inbox and projects',
+        mine: 'Tasks assigned to you, including your Inbox',
+      }[current.id];
       $('membersBar').replaceChildren();
     }
     $('headerActions').replaceChildren(...actions);
@@ -144,17 +150,19 @@
     const filter = isProject ? { projectId: project.id } : { view: current.id };
     filter.includeCompleted = showCompleted;
     const tasks = store.listTasks(currentUser, filter);
-    $('taskList').replaceChildren(...tasks.map((t) => renderTask(t, !isProject)));
+    $('taskList').replaceChildren(...tasks.map((t) => renderTask(t, !isProject && !isInbox)));
     const empty = $('emptyState');
     empty.hidden = tasks.length > 0;
     if (!tasks.length) {
-      empty.textContent = store.listProjects(currentUser).length === 0
-        ? 'No projects visible to you yet.'
+      empty.textContent = isInbox
+        ? 'Your Inbox is empty. Add a personal task below.'
         : 'Nothing here. Enjoy your day! 🎉';
     }
 
-    // Add task form only inside a project
-    $('addTaskForm').hidden = !isProject;
+    // Add task form inside a project or in the personal Inbox
+    $('addTaskForm').hidden = !(isProject || isInbox);
+    $('newAssignee').hidden = !isProject;
+    $('newTitle').placeholder = isInbox ? 'Personal task, e.g. Renew passport' : 'Task name, e.g. Send invoice';
     if (isProject) {
       const opts = [el('option', { value: '' }, 'Unassigned')]
         .concat([project.managerId, ...project.memberIds].map((id) => el('option', { value: id }, userById(id).name)));
@@ -162,9 +170,14 @@
     }
   }
 
+  function projectLabel(projectId) {
+    if (projectId === null) return el('span', { class: 'project-label' }, '📥 Inbox');
+    const p = store.getProject(currentUser, projectId);
+    return el('span', { class: 'project-label' }, el('span', { class: 'dot', style: 'background:' + p.color }), p.name);
+  }
+
   function renderTask(t, showProject) {
     const assignee = t.assigneeId ? userById(t.assigneeId) : null;
-    const project = showProject ? store.getProject(currentUser, t.projectId) : null;
     return el('li', { class: 'task' + (t.completed ? ' done' : '') },
       el('button', {
         class: 'check p' + t.priority, title: t.completed ? 'Mark incomplete' : 'Complete task', 'aria-label': 'Toggle complete',
@@ -175,15 +188,17 @@
         t.description ? el('div', { class: 'desc' }, t.description) : null,
         el('div', { class: 'meta-row' },
           formatDue(t.dueDate),
-          assignee ? el('span', { class: 'project-label' }, avatar(assignee), ' ' + assignee.name) : el('span', null, 'Unassigned'),
-          project ? el('span', { class: 'project-label' }, el('span', { class: 'dot', style: 'background:' + project.color }), project.name) : null)));
+          // Personal tasks are always the owner's, so skip the assignee there.
+          t.projectId === null ? null
+            : assignee ? el('span', { class: 'project-label' }, avatar(assignee), ' ' + assignee.name) : el('span', null, 'Unassigned'),
+          showProject ? projectLabel(t.projectId) : null)));
   }
 
   // ---- add task ------------------------------------------------------
   $('addTaskForm').addEventListener('submit', (e) => {
     e.preventDefault();
     attempt(() => {
-      store.createTask(currentUser, current.id, {
+      store.createTask(currentUser, current.type === 'project' ? current.id : null, {
         title: $('newTitle').value,
         description: $('newDesc').value,
         dueDate: $('newDue').value,
@@ -289,15 +304,19 @@
     const t = attempt(() => store.getTask(currentUser, taskId));
     if (!t) return;
     editingTaskId = taskId;
-    const p = store.getProject(currentUser, t.projectId);
+    const p = t.projectId === null ? null : store.getProject(currentUser, t.projectId);
     $('editTitle').value = t.title;
     $('editDesc').value = t.description;
     $('editDue').value = t.dueDate || '';
     $('editPriority').value = String(t.priority);
-    $('editAssignee').replaceChildren(el('option', { value: '' }, 'Unassigned'),
-      ...[p.managerId, ...p.memberIds].map((id) => el('option', { value: id, selected: id === t.assigneeId }, userById(id).name)));
-    $('editMeta').textContent = 'In ' + p.name + ' · created by ' + userById(t.createdBy).name;
-    $('taskDelete').hidden = !(t.createdBy === currentUser || store.canManage(currentUser, p.id));
+    const people = p ? [p.managerId, ...p.memberIds] : [t.createdBy];
+    $('editAssignee').replaceChildren(...(p ? [el('option', { value: '' }, 'Unassigned')] : []),
+      ...people.map((id) => el('option', { value: id, selected: id === t.assigneeId }, userById(id).name)));
+    $('editAssignee').closest('label').hidden = !p;
+    $('editMeta').textContent = p
+      ? 'In ' + p.name + ' · created by ' + userById(t.createdBy).name
+      : '📥 Personal task in your Inbox · only you can see it';
+    $('taskDelete').hidden = !(t.createdBy === currentUser || (p && store.canManage(currentUser, p.id)));
     $('taskError').textContent = '';
     $('taskDialog').showModal();
   }

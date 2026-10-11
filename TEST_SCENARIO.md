@@ -26,21 +26,26 @@
 | Create a project (becomes its PM) | ✅ | ✅ | ✅ | ✅ |
 | Create a project with someone else as PM | ✅ | ❌ | ❌ | ❌ |
 
+| Create **personal tasks** in own Inbox | ✅ | ✅ | ✅ | ✅ |
+| See someone else's personal tasks | ❌ | ❌ | ❌ | ❌ |
+
 Other rules:
+- **Personal tasks** sit in each user's private **Inbox** and also show in their Today, Upcoming and Assigned to me views. Only the creator can see them, **not even the admin**, and they can't be assigned to anyone else.
 - Tasks can only be assigned to the project's PM or members.
 - When a member is removed, their tasks in that project go back to *Unassigned*.
 - The PM can't be removed. An admin has to assign a new PM first, and the old PM then stays on as a member.
 
 ## Automated tests
 
-Open `tests.html` in a browser. It runs 36 checks in 6 groups and shows **PASS/FAIL** in the tab title:
+Open `tests.html` in a browser. It runs 43 checks in 7 groups and shows **PASS/FAIL** in the tab title:
 
 1. Project visibility per user
 2. Non-members are blocked from direct access (by id, task edits, cross-project views)
 3. Project creation: manager and members
 4. Managing members (add, remove, change PM, delete project)
 5. Tasks (assignment rules, complete/reopen, delete rights, Today/Upcoming views)
-6. An end-to-end story across all 5 users
+6. Personal tasks (private Inbox)
+7. An end-to-end story across all 5 users
 
 ## Manual walkthrough
 
@@ -63,3 +68,6 @@ Use the **Signed in as** dropdown to switch users. **Reset demo** restores the s
 | 13 | Alice | Open Website Redesign → Manage → change PM to Carol → Save | Carol becomes PM. Bob stays a member |
 | 14 | Bob | Open a task he didn't create in Website Redesign | No Delete button (he is now only a member) |
 | 15 | Carol | Manage Website Redesign → untick Eve → Save | Eve loses access. Her assigned tasks become Unassigned |
+| 16 | Eve | Open **Inbox** → add "Buy safety shoes" due today | Task shows in Inbox and in **Today** with a 📥 Inbox label |
+| 17 | Bob, Alice | Check Inbox / Today | Eve's personal task is **not** visible, even to the admin |
+| 18 | Bob | Open Inbox | Only his own "Book dentist appointment" |

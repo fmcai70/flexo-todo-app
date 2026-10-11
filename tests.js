@@ -44,9 +44,9 @@
     test('Bob sees only Website Redesign', (s) => eq(projectNames(s, BOB), [WEB]));
     test('Carol sees Website Redesign and Mobile App', (s) => eq(projectNames(s, CAROL), [WEB, MOBILE]));
     test('Dave sees only Mobile App', (s) => eq(projectNames(s, DAVE), [MOBILE]));
-    test('Eve sees no projects and no tasks', (s) => {
+    test('Eve sees no projects and no project tasks (only her own Inbox)', (s) => {
       eq(projectNames(s, EVE), []);
-      eq(s.listTasks(EVE, { includeCompleted: true }).length, 0);
+      eq(s.listTasks(EVE, { includeCompleted: true }).filter((t) => t.projectId !== null).length, 0);
     });
     test('Nobody but the admin can see Finance Audit (admin-only project)', (s) => {
       [BOB, CAROL, DAVE, EVE].forEach((u) => assert(!s.canView(u, FINANCE), u + ' should not see Finance'));
@@ -71,7 +71,7 @@
       const visible = new Set(projectNames(s, DAVE));
       ['today', 'upcoming', 'mine', undefined].forEach((view) =>
         s.listTasks(DAVE, { view, includeCompleted: true }).forEach((t) =>
-          assert(visible.has(t.projectId), 'leaked task ' + t.id + ' in view ' + view)));
+          assert(t.projectId === null ? t.createdBy === DAVE : visible.has(t.projectId), 'leaked task ' + t.id + ' in view ' + view)));
     });
   });
 
@@ -185,7 +185,49 @@
     });
   });
 
-  describe('6. End-to-end story across all 5 users', () => {
+  describe('6. Personal tasks (private Inbox)', () => {
+    test('Every user, even one with no projects, can create a personal task', (s) => {
+      [ALICE, BOB, CAROL, DAVE, EVE].forEach((u) => {
+        const t = s.createTask(u, null, { title: 'My own task ' + u });
+        eq([t.projectId, t.createdBy, t.assigneeId], [null, u, u]);
+      });
+    });
+    test('Inbox shows only the user\'s own personal tasks', (s) => {
+      eq(s.listTasks(EVE, { view: 'inbox', includeCompleted: true }).map((t) => t.id).sort(), ['t13', 't14']);
+      eq(s.listTasks(BOB, { view: 'inbox' }).map((t) => t.id), ['t12']);
+      eq(s.listTasks(DAVE, { view: 'inbox' }).length, 0);
+    });
+    test('Other users cannot see, edit, complete or delete someone\'s personal task', (s) => {
+      [BOB, CAROL, DAVE].forEach((u) => {
+        throws(() => s.getTask(u, 't13'), PermissionError);
+        throws(() => s.updateTask(u, 't13', { title: 'x' }), PermissionError);
+        throws(() => s.toggleTask(u, 't13'), PermissionError);
+        throws(() => s.deleteTask(u, 't13'), PermissionError);
+        assert(!s.listTasks(u, { includeCompleted: true }).some((t) => t.id === 't13'), u + ' sees Eve\'s task');
+      });
+    });
+    test('Personal tasks stay private even from the admin', (s) => {
+      throws(() => s.getTask(ALICE, 't12'), PermissionError);
+      assert(!s.listTasks(ALICE, { includeCompleted: true }).some((t) => t.id === 't12'));
+    });
+    test('Personal tasks appear in the owner\'s Today / Upcoming / Assigned to me', (s) => {
+      assert(s.listTasks(EVE, { view: 'today' }).some((t) => t.id === 't13'), 'Today');
+      assert(s.listTasks(BOB, { view: 'upcoming' }).some((t) => t.id === 't12'), 'Upcoming');
+      assert(s.listTasks(EVE, { view: 'mine' }).some((t) => t.id === 't14'), 'Assigned to me');
+    });
+    test('Owner can edit, complete and delete their personal task', (s) => {
+      eq(s.updateTask(EVE, 't13', { title: 'Read handbook ch.1', priority: 1 }).priority, 1);
+      eq(s.toggleTask(EVE, 't13').completed, true);
+      s.deleteTask(EVE, 't13');
+      throws(() => s.getTask(EVE, 't13'), PermissionError);
+    });
+    test('Personal tasks cannot be assigned to someone else', (s) => {
+      throws(() => s.createTask(BOB, null, { title: 'x', assigneeId: CAROL }), ValidationError);
+      throws(() => s.updateTask(BOB, 't12', { assigneeId: CAROL }), ValidationError);
+    });
+  });
+
+  describe('7. End-to-end story across all 5 users', () => {
     test('Full scenario', (s) => {
       // Alice (admin) starts a project, appoints Bob as PM with Dave as member.
       const p = s.createProject(ALICE, { name: 'Customer Portal', managerId: BOB, memberIds: [DAVE] });

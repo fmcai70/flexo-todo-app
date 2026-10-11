@@ -7,6 +7,9 @@
  *   - project member   : can see the project, add/edit/complete tasks, delete own tasks
  *   - everyone else    : cannot see the project or any of its tasks
  *
+ * Personal tasks (projectId === null) live in the owner's private Inbox:
+ * only the user who created them can see or change them, not even an admin.
+ *
  * The store is plain JS with no DOM access so it can be unit tested (see tests.html).
  */
 (function (global) {
@@ -67,6 +70,11 @@
         task('t8', 'p2', 'Beta test sign-off', 'u3', 'u3', null, 3, { completed: true, completedAt: now }),
         task('t9', 'p3', 'Reconcile Q3 bank statements', 'u1', 'u1', 3, 1),
         task('t10', 'p3', 'Prepare auditor document list', 'u1', 'u1', 8, 3),
+        // Personal Inbox tasks (private to their creator).
+        task('t11', null, 'Renew car registration', 'u1', 'u1', 5, 2),
+        task('t12', null, 'Book dentist appointment', 'u2', 'u2', 3, 3),
+        task('t13', null, 'Read onboarding handbook', 'u5', 'u5', 0, 2),
+        task('t14', null, 'Set up email signature', 'u5', 'u5', null, 4),
       ],
     };
   }
@@ -125,11 +133,19 @@
     function requireTask(actorId, taskId) {
       let t;
       try { t = findTask(taskId); } catch (e) { throw new PermissionError('You do not have access to this task'); }
-      requireView(actorId, t.projectId);
+      if (t.projectId === null) {
+        if (t.createdBy !== actorId) throw new PermissionError('You do not have access to this task');
+      } else {
+        requireView(actorId, t.projectId);
+      }
       return t;
     }
 
-    function validateTaskFields(p, fields) {
+    const isVisibleTask = (actorId, t, visibleProjects) =>
+      t.projectId === null ? t.createdBy === actorId : visibleProjects.has(t.projectId);
+
+    // p is the project, or null for a personal task owned by ownerId.
+    function validateTaskFields(p, fields, ownerId) {
       if ('title' in fields) {
         if (typeof fields.title !== 'string' || !fields.title.trim()) throw new ValidationError('Task title is required');
         fields.title = fields.title.trim();
@@ -143,7 +159,11 @@
         else if (!/^\d{4}-\d{2}-\d{2}$/.test(fields.dueDate)) throw new ValidationError('Due date must be YYYY-MM-DD');
       }
       if ('assigneeId' in fields) {
-        if (fields.assigneeId === '' || fields.assigneeId == null) fields.assigneeId = null;
+        if (!p) {
+          // Personal tasks always belong to their owner.
+          if (fields.assigneeId && fields.assigneeId !== ownerId) throw new ValidationError('Personal tasks cannot be assigned to other users');
+          fields.assigneeId = ownerId;
+        } else if (fields.assigneeId === '' || fields.assigneeId == null) fields.assigneeId = null;
         else if (!isMemberOf(fields.assigneeId, p)) throw new ValidationError('Assignee must be a member of the project');
       }
       return fields;
@@ -235,7 +255,8 @@
 
     // ---- tasks ---------------------------------------------------------
     /**
-     * filter: { projectId?, view?: 'today' | 'upcoming' | 'mine', includeCompleted?, today? }
+     * filter: { projectId?, view?: 'inbox' | 'today' | 'upcoming' | 'mine', includeCompleted?, today? }
+     * Without a projectId, results cover the actor's visible projects plus their personal tasks.
      */
     function listTasks(actorId, filter = {}) {
       findUser(actorId);
@@ -244,9 +265,11 @@
       if (filter.projectId) {
         requireView(actorId, filter.projectId);
         tasks = state.tasks.filter((t) => t.projectId === filter.projectId);
+      } else if (filter.view === 'inbox') {
+        tasks = state.tasks.filter((t) => t.projectId === null && t.createdBy === actorId);
       } else {
         const visible = new Set(state.projects.filter((p) => canView(actorId, p.id)).map((p) => p.id));
-        tasks = state.tasks.filter((t) => visible.has(t.projectId));
+        tasks = state.tasks.filter((t) => isVisibleTask(actorId, t, visible));
       }
       if (filter.view === 'today') tasks = tasks.filter((t) => t.dueDate && t.dueDate <= today);
       if (filter.view === 'upcoming') tasks = tasks.filter((t) => t.dueDate && t.dueDate > today);
@@ -260,9 +283,12 @@
 
     function getTask(actorId, taskId) { return clone(requireTask(actorId, taskId)); }
 
+    /** projectId null (or 'inbox') creates a personal task in the actor's Inbox. */
     function createTask(actorId, projectId, fields = {}) {
-      const p = requireView(actorId, projectId);
-      const f = validateTaskFields(p, Object.assign({ priority: 4, dueDate: null, assigneeId: null, description: '' }, fields, { title: fields.title }));
+      findUser(actorId);
+      if (projectId === 'inbox') projectId = null;
+      const p = projectId === null ? null : requireView(actorId, projectId);
+      const f = validateTaskFields(p, Object.assign({ priority: 4, dueDate: null, assigneeId: null, description: '' }, fields, { title: fields.title }), actorId);
       const t = {
         id: newId('t'), projectId, title: f.title, description: String(f.description || ''),
         createdBy: actorId, assigneeId: f.assigneeId, dueDate: f.dueDate, priority: f.priority,
@@ -275,10 +301,10 @@
 
     function updateTask(actorId, taskId, patch = {}) {
       const t = requireTask(actorId, taskId);
-      const p = findProject(t.projectId);
+      const p = t.projectId === null ? null : findProject(t.projectId);
       const allowed = {};
       ['title', 'description', 'dueDate', 'priority', 'assigneeId'].forEach((k) => { if (k in patch) allowed[k] = patch[k]; });
-      validateTaskFields(p, allowed);
+      validateTaskFields(p, allowed, t.createdBy);
       Object.assign(t, allowed);
       notify();
       return clone(t);
@@ -294,7 +320,7 @@
 
     function deleteTask(actorId, taskId) {
       const t = requireTask(actorId, taskId);
-      if (t.createdBy !== actorId && !canManage(actorId, t.projectId)) {
+      if (t.createdBy !== actorId && (t.projectId === null || !canManage(actorId, t.projectId))) {
         throw new PermissionError('Only the task creator, project manager, or an admin can delete this task');
       }
       state.tasks = state.tasks.filter((x) => x.id !== taskId);
