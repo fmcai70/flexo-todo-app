@@ -184,6 +184,27 @@ begin
   insert into public.sections (project_id, name) values (mob, 'QA');
   checks := checks + 1;
 
+  -- ---- 5. Notifications ------------------------------------------------
+  perform set_config('request.jwt.claims', json_build_object('sub', c, 'role', 'authenticated')::text, true);
+  select count(*) into n from public.notifications where task_id = t_web and type = 'assigned';
+  checks := checks + 1; if n <> 1 then failures := failures || format('Carol should have 1 "assigned" notification from Bob, has %s', n); end if;
+  select count(*) into n from public.notifications where task_id = t_mob and type = 'completed';
+  checks := checks + 1; if n <> 1 then failures := failures || format('Carol should be notified that Dave completed her task, has %s', n); end if;
+  update public.notifications set type = 'uncompleted', task_title = 'Fake', read_at = now() where task_id = t_web;
+  select type || '|' || task_title || '|' || (read_at is not null)::text into txt from public.notifications where task_id = t_web and user_id = c;
+  checks := checks + 1; if txt <> 'assigned|Homepage wireframe|true' then failures := failures || format('Notification rewrite should only change read status, got %s', txt); end if;
+  checks := checks + 1;
+  begin
+    insert into public.notifications (user_id, type, task_title) values (d, 'assigned', 'Fake notification');
+    failures := failures || 'Carol could create a fake notification for Dave';
+  exception when others then null;
+  end;
+  perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
+  select count(*) into n from public.notifications where user_id = c;
+  checks := checks + 1; if n <> 0 then failures := failures || 'Bob could read Carol''s notifications'; end if;
+  select count(*) into n from public.notifications where user_id = b;
+  checks := checks + 1; if n <> 0 then failures := failures || 'Bob was notified about his own actions'; end if;
+
   perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
   insert into public.project_members (project_id, user_id) values (web, e);
   perform set_config('request.jwt.claims', json_build_object('sub', e, 'role', 'authenticated')::text, true);
@@ -211,6 +232,7 @@ begin
   delete from public.tasks where project_id in (web, mob, fin) or created_by in (a, b, c, d, e);
   delete from public.projects where id in (web, mob, fin);
   delete from public.filters where owner_id in (a, b, c, d, e);
+  delete from public.notifications where user_id in (a, b, c, d, e);
   delete from auth.users where id in (a, b, c, d, e);
 
   if array_length(failures, 1) > 0 then

@@ -124,6 +124,28 @@ button.sub-badge:hover { color: var(--text); }
 .sync { font-size: 12px; color: rgba(255,255,255,.85); white-space: nowrap; }
 .topbar .me { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Notifications */
+.bell { position: relative; }
+.badge {
+  position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px; padding: 0 4px;
+  border-radius: 9px; background: #fff; color: var(--accent); font-size: 10px; font-weight: 700; line-height: 17px; text-align: center;
+}
+.notif-dialog { padding: 0; width: min(440px, calc(100vw - 24px)); }
+.notif-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+.notif-head h2 { margin: 0; font-size: 17px; }
+.notif-list { list-style: none; margin: 0; padding: 0; max-height: 55vh; overflow-y: auto; }
+.notif-list li { display: flex; gap: 10px; padding: 11px 16px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 14px; }
+.notif-list li:hover { background: #fafafa; }
+.notif-list li.unread { background: #fff6f4; }
+.notif-list li.unread .notif-body > div:first-child::after { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-left: 6px; vertical-align: middle; }
+.notif-list li.empty { cursor: default; color: var(--muted); justify-content: center; padding: 28px 16px; }
+.notif-icon { width: 22px; text-align: center; }
+.notif-body { flex: 1; min-width: 0; }
+.notif-body .meta { margin: 3px 0 0; }
+.email-settings { padding: 12px 16px 16px; font-size: 13px; }
+.email-settings summary { cursor: pointer; color: var(--accent); margin-bottom: 8px; }
+.email-settings label { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; color: var(--text); font-size: 13px; }
+
 /* Search */
 .search { flex: 0 1 260px; min-width: 0; }
 .search input {

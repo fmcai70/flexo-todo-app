@@ -54,7 +54,8 @@
     </form>
     <div class="spacer"></div>
     <span class="sync" id="syncStatus" role="status" hidden></span>
-    <button class="btn ghost small" id="notifyBtn" hidden title="Allow reminder notifications">🔔<span class="hide-sm"> Enable reminders</span></button>
+    <button class="btn ghost small" id="notifyBtn" hidden title="Allow pop-up notifications for reminders and assignments">⏰<span class="hide-sm"> Allow pop-ups</span></button>
+    <button class="btn ghost small bell" id="bellBtn" hidden aria-label="Notifications" title="Notifications">🔔<span class="badge" id="bellCount" hidden></span></button>
     <!-- Demo mode: switch between the 5 sample users -->
     <label class="signed-in" id="demoUser" hidden>
       <span>Demo user</span>
@@ -206,6 +207,23 @@
         <button class="btn primary" value="save">Save</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Notifications panel (shared mode) -->
+  <dialog id="notifDialog" class="notif-dialog">
+    <div class="notif-head">
+      <h2>Notifications</h2>
+      <div class="spacer"></div>
+      <button class="link-btn" type="button" id="markAllReadBtn">Mark all as read</button>
+      <button class="icon-btn" type="button" id="notifClose" aria-label="Close">✕</button>
+    </div>
+    <ul class="notif-list" id="notifList"></ul>
+    <details class="email-settings" id="emailSettings">
+      <summary>✉ Email settings</summary>
+      <label><input type="checkbox" id="prefAssign"> Email me when someone assigns a task to me</label>
+      <label><input type="checkbox" id="prefComplete"> Email me when someone completes or reopens a task I created</label>
+      <p class="meta">Emails go to <b id="prefEmail"></b>. Notifications always appear here in the app.</p>
+    </details>
   </dialog>
 
   <!-- Saved filter dialog -->

@@ -120,6 +120,7 @@
       $('meBtn').textContent = '👤 ' + me.name + (me.role === 'admin' ? ' · Admin' : '');
     }
     $('notifyBtn').hidden = !('Notification' in window) || Notification.permission !== 'default';
+    renderBell();
     if (current.type !== 'search' && document.activeElement !== $('searchInput')) $('searchInput').value = '';
   }
 
@@ -708,23 +709,128 @@
   function showReminder(t) {
     const when = dateLabel(t.dueDate) + (t.dueTime ? ' at ' + timeLabel(t.dueTime) : '');
     toast('⏰ ' + t.title + ' (due ' + when + ')', false, 8000);
+    systemNotify('⏰ ' + t.title, 'Due ' + when, t.id);
+  }
+
+  // A phone/desktop pop-up, if the person allowed them.
+  function systemNotify(title, body, tag) {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    const opts = { body: 'Due ' + when, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: t.id };
+    const opts = { body, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag };
     // Android only allows notifications through the service worker.
-    const fallback = () => { try { new Notification('⏰ ' + t.title, opts); } catch (e) { /* toast already shown */ } };
+    const fallback = () => { try { new Notification(title, opts); } catch (e) { /* toast already shown */ } };
     if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
       navigator.serviceWorker.getRegistration()
-        .then((reg) => (reg ? reg.showNotification('⏰ ' + t.title, opts) : fallback()))
+        .then((reg) => (reg ? reg.showNotification(title, opts) : fallback()))
         .catch(fallback);
     } else fallback();
   }
 
   $('notifyBtn').addEventListener('click', () => {
     Notification.requestPermission().then((p) => {
-      toast(p === 'granted' ? 'Reminders will pop up as notifications' : 'Notifications blocked; reminders will show inside the app');
+      toast(p === 'granted' ? 'Reminders and assignments will pop up as notifications' : 'Pop-ups blocked; you\'ll see them inside the app');
       render();
     });
   });
+
+  // ---- notifications (shared mode) ---------------------------------
+  let notifications = [];
+  let notificationsAvailable = false; // false until the database has the notifications table
+  let seenNotificationIds = null;
+  const NOTIF_VERB = { assigned: 'assigned you', completed: 'completed', uncompleted: 'reopened' };
+
+  function timeAgo(iso) {
+    const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + 'm ago';
+    if (mins < 24 * 60) return Math.round(mins / 60) + 'h ago';
+    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+
+  // announce: pop up anything new since the last check (live updates).
+  async function refreshNotifications(announce) {
+    if (mode !== 'cloud' || !Cloud || !store) return;
+    try {
+      const list = await Cloud.loadNotifications();
+      if (announce && seenNotificationIds) {
+        list.filter((n) => !n.read_at && !seenNotificationIds.has(n.id)).reverse().forEach((n) => {
+          const text = (n.actor_name || 'Someone') + ' ' + NOTIF_VERB[n.type] + ': ' + n.task_title;
+          toast('🔔 ' + text, false, 6000);
+          systemNotify('🔔 ' + text, n.project_name, n.id);
+        });
+      }
+      seenNotificationIds = new Set(list.map((n) => n.id));
+      notifications = list;
+      notificationsAvailable = true;
+    } catch (err) {
+      notificationsAvailable = false; // e.g. schema.sql not re-run yet
+    }
+    renderBell();
+    if ($('notifDialog').open) renderNotificationList();
+  }
+
+  function renderBell() {
+    $('bellBtn').hidden = mode !== 'cloud' || !notificationsAvailable;
+    const unread = notifications.filter((n) => !n.read_at).length;
+    $('bellCount').hidden = !unread;
+    $('bellCount').textContent = unread > 9 ? '9+' : String(unread);
+  }
+
+  function renderNotificationList() {
+    if (!notifications.length) {
+      $('notifList').replaceChildren(el('li', { class: 'empty' }, 'No notifications yet. You\'ll see tasks assigned to you here.'));
+      return;
+    }
+    $('notifList').replaceChildren(...notifications.map((n) => el('li', {
+      class: n.read_at ? '' : 'unread',
+      onclick: () => openNotification(n),
+    },
+    el('span', { class: 'notif-icon' }, n.type === 'assigned' ? '👤' : n.type === 'completed' ? '✅' : '↩'),
+    el('div', { class: 'notif-body' },
+      el('div', null, el('b', null, n.actor_name || 'Someone'), ' ' + NOTIF_VERB[n.type] + ' ', el('b', null, n.task_title)),
+      el('div', { class: 'meta' }, [n.project_name, n.due_date ? 'due ' + dateLabel(n.due_date) + (n.due_time ? ' ' + timeLabel(n.due_time) : '') : '', timeAgo(n.created_at)]
+        .filter(Boolean).join(' · '))))));
+  }
+
+  function openNotification(n) {
+    if (!n.read_at) {
+      n.read_at = new Date().toISOString();
+      Cloud.markNotificationsRead([n.id]).catch(() => {});
+      renderBell();
+    }
+    $('notifDialog').close();
+    if (n.task_id && store.listTasks(currentUser, { includeCompleted: true }).some((t) => t.id === n.task_id)) {
+      openTaskDialog(n.task_id);
+    } else {
+      toast('That task is no longer available', true);
+    }
+  }
+
+  $('bellBtn').addEventListener('click', async () => {
+    renderNotificationList();
+    $('notifDialog').showModal();
+    try {
+      const prefs = await Cloud.getEmailPrefs(currentUser);
+      $('prefAssign').checked = prefs.email_on_assign;
+      $('prefComplete').checked = prefs.email_on_complete;
+      $('prefEmail').textContent = prefs.email;
+    } catch (e) { $('emailSettings').hidden = true; }
+  });
+  $('notifClose').addEventListener('click', () => $('notifDialog').close());
+  $('markAllReadBtn').addEventListener('click', () => {
+    const ids = notifications.filter((n) => !n.read_at).map((n) => n.id);
+    const stamp = new Date().toISOString();
+    notifications.forEach((n) => { if (!n.read_at) n.read_at = stamp; });
+    renderBell();
+    renderNotificationList();
+    Cloud.markNotificationsRead(ids).catch((err) => toast(err.message, true));
+  });
+  function savePref(column, checkbox) {
+    Cloud.setEmailPrefs(currentUser, { [column]: checkbox.checked })
+      .then(() => toast('Email settings saved'))
+      .catch((err) => { checkbox.checked = !checkbox.checked; toast(err.message, true); });
+  }
+  $('prefAssign').addEventListener('change', (e) => savePref('email_on_assign', e.target));
+  $('prefComplete').addEventListener('change', (e) => savePref('email_on_complete', e.target));
 
   // ---- global controls -----------------------------------------------
   $('userSelect').addEventListener('change', (e) => {
@@ -792,6 +898,9 @@
 
   // ---- shared mode: sign-in ------------------------------------------
   function showAuth(errorText, infoText) {
+    notifications = [];
+    notificationsAvailable = false;
+    seenNotificationIds = null;
     showScreen('auth');
     $('signInForm').hidden = false;
     $('newPasswordForm').hidden = true;
@@ -912,6 +1021,7 @@
       store = createStore(state, onCloudChange, { newId: () => crypto.randomUUID() });
       synced = store.state;
       if (!$('appShell').hidden) render();
+      refreshNotifications(true);
     } catch (err) {
       setSync('Offline');
       toast('Could not load the latest data: ' + err.message, true, 5000);
@@ -946,6 +1056,8 @@
       render();
       checkReminders();
       Cloud.subscribe(scheduleReload);
+      seenNotificationIds = null;
+      refreshNotifications(false);
     } catch (err) {
       showAuth('Could not load your data: ' + err.message);
     } finally { entering = false; }

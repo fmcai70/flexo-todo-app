@@ -50,7 +50,7 @@ For each person, enter a temporary password and tick **Auto Confirm User**. Give
 
 In **SQL Editor**, run [`rls_tests.sql`](rls_tests.sql). It creates 5 temporary test users, checks what each one can see and do against the real database rules, then removes them again.
 
-You should see **"All 31 permission checks passed ✔"**. If any check fails, you'll get an error listing which ones. Send it to the developer.
+You should see **"All 37 permission checks passed ✔"**. If any check fails, you'll get an error listing which ones. Send it to the developer.
 
 ## 6. Sign in
 
@@ -59,6 +59,61 @@ Open https://fmcai70.github.io/flexo-todo-app/ and sign in with the email and pa
 - The admin sees every project. Everyone else sees only the projects they're a member of, plus their own Inbox.
 - Changes appear for everyone within a second or two.
 - **Try the demo** on the sign-in screen still opens the offline sample data with the 5 demo users, which is handy for training.
+
+## 7. Email notifications (like Todoist)
+
+People get an email when someone **assigns them a task**. They can also choose to get one when a task they created is **completed or reopened**. Notifications always show under the 🔔 bell in the app. Each person picks which ones they want by email (🔔 → **Email settings**).
+
+**Your SMTP server must allow port 465 (SSL).** Supabase blocks ports 25 and 587 for sending mail. Most mail servers, including Gmail, support 465. Microsoft 365 (`smtp.office365.com`) only offers 587, so it won't work here.
+
+### 7a. Update the database
+Run [`schema.sql`](schema.sql) again in the **SQL Editor**, the same as step 1. It adds the notifications without touching existing data.
+
+### 7b. Create the email function
+1. **Edge Functions** (left menu) → **Deploy a new function** → **Via Editor**.
+2. Name it exactly `notify-email`.
+3. Replace the sample code with everything in [`functions/notify-email/index.ts`](functions/notify-email/index.ts), then click **Deploy**.
+4. Open the function's **Details / Settings** and turn **off** "Verify JWT" ("Enforce JWT verification"), then save. The function checks its own secret instead (next step).
+
+### 7c. Add the SMTP settings as secrets
+**Edge Functions** → **Secrets** (sometimes under **Manage secrets**). Add each of these:
+
+| Name | Value |
+|------|-------|
+| `SMTP_HOST` | your SMTP server, e.g. `mail.flexo.com.ph` |
+| `SMTP_PORT` | `465` |
+| `SMTP_USER` | the mailbox login, e.g. `todo@flexo.com.ph` |
+| `SMTP_PASS` | the mailbox password |
+| `SMTP_FROM` | `Flexo Todo <todo@flexo.com.ph>` (the address people see) |
+| `WEBHOOK_SECRET` | make up a long random text, e.g. 30+ letters and numbers. You'll paste the same value in 7d |
+| `APP_URL` | `https://fmcai70.github.io/flexo-todo-app/` |
+
+These stay inside Supabase. **Never** put them in the app, GitHub, or a chat.
+
+### 7d. Send new notifications to the function
+**Database** → **Webhooks** (or **Integrations → Database Webhooks**) → enable if asked → **Create a new hook**:
+
+- **Name:** `notify_email`
+- **Table:** `notifications`
+- **Events:** tick **Insert** only
+- **Type:** **Supabase Edge Functions** → choose `notify-email`, method **POST**
+- **HTTP Headers:** add `x-webhook-secret` with the **same value** as `WEBHOOK_SECRET`
+- Click **Create webhook**.
+
+### 7e. Try it
+Sign in as Rogerick and assign a task to fmc.ai. fmc.ai should see 🔔 **1** in the app within seconds, and an email shortly after.
+
+**No email arrives?** Check **Edge Functions → notify-email → Logs**:
+
+| Log says | Fix |
+|----------|-----|
+| `Unauthorized` | The webhook header and `WEBHOOK_SECRET` don't match |
+| `Email failed: … auth …` | Wrong `SMTP_USER` or `SMTP_PASS` |
+| `Email failed: … timeout / connection …` | Wrong `SMTP_HOST`, or the server doesn't allow port 465 |
+| `Skipped (email not requested)` | That person turned this email off in 🔔 → Email settings |
+| Nothing at all | The webhook (7d) isn't set up for the `notifications` table |
+
+Also check the recipient's spam folder the first time.
 
 ## Notes
 

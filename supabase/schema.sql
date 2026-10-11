@@ -348,6 +348,110 @@ create policy "filters_owner" on public.filters
   using (owner_id = auth.uid())
   with check (owner_id = auth.uid());
 
+-- ---------------------------------------------------------------------
+-- Notifications (like Todoist: "Tasks assigned to you", "Task completed")
+-- Created by the database itself, so they can't be faked or skipped.
+-- An email is sent for rows with send_email = true (see supabase/functions/notify-email).
+-- ---------------------------------------------------------------------
+alter table public.profiles add column if not exists email_on_assign boolean not null default true;
+alter table public.profiles add column if not exists email_on_complete boolean not null default false;
+
+create table if not exists public.notifications (
+  id               uuid primary key default gen_random_uuid(),
+  user_id          uuid not null references public.profiles (id) on delete cascade,  -- who is notified
+  type             text not null check (type in ('assigned', 'completed', 'uncompleted')),
+  task_id          uuid references public.tasks (id) on delete cascade,
+  project_id       uuid references public.projects (id) on delete cascade,
+  actor_id         uuid references public.profiles (id) on delete set null,          -- who did it
+  actor_name       text not null default '',
+  task_title       text not null default '',
+  project_name     text not null default '',
+  due_date         date,
+  due_time         text,
+  recipient_email  text not null default '',
+  send_email       boolean not null default false,
+  read_at          timestamptz,
+  created_at       timestamptz not null default now()
+);
+create index if not exists notifications_user_idx on public.notifications (user_id, created_at desc);
+
+alter table public.notifications enable row level security;
+drop policy if exists "notifications_select" on public.notifications;
+create policy "notifications_select" on public.notifications
+  for select to authenticated using (user_id = auth.uid());
+drop policy if exists "notifications_update" on public.notifications;
+create policy "notifications_update" on public.notifications
+  for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "notifications_delete" on public.notifications;
+create policy "notifications_delete" on public.notifications
+  for delete to authenticated using (user_id = auth.uid());
+-- (no insert policy: only the trigger below creates notifications)
+
+-- People can only mark their notifications read/unread, not rewrite them.
+create or replace function public.protect_notification() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is not null then
+    old.read_at := new.read_at;
+    return old;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists protect_notification on public.notifications;
+create trigger protect_notification
+  before update on public.notifications
+  for each row execute function public.protect_notification();
+
+-- Task assigned → notify the assignee. Task completed/reopened → notify its creator.
+-- Nobody is notified about their own actions, and personal Inbox tasks never notify.
+create or replace function public.notify_task_change() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  actor uuid := auth.uid();
+  actor_nm text;
+  proj_nm text;
+  kind text;
+begin
+  if actor is null or new.project_id is null then
+    return new;
+  end if;
+  select name into actor_nm from public.profiles where id = actor;
+  select name into proj_nm from public.projects where id = new.project_id;
+
+  if new.assignee_id is not null and new.assignee_id <> actor
+     and (tg_op = 'INSERT' or new.assignee_id is distinct from old.assignee_id) then
+    insert into public.notifications
+      (user_id, type, task_id, project_id, actor_id, actor_name, task_title, project_name, due_date, due_time, recipient_email, send_email)
+    select p.id, 'assigned', new.id, new.project_id, actor, coalesce(actor_nm, 'Someone'), new.title,
+           coalesce(proj_nm, ''), new.due_date, new.due_time, p.email, p.email_on_assign
+      from public.profiles p where p.id = new.assignee_id;
+  end if;
+
+  -- Completion: top-level tasks only (completing a parent also completes its subtasks,
+  -- which would otherwise flood people). A repeating task "completes" by moving its date.
+  if tg_op = 'UPDATE' and new.parent_id is null and new.created_by <> actor then
+    if (new.completed and not old.completed) or new.last_completed_at is distinct from old.last_completed_at then
+      kind := 'completed';
+    elsif old.completed and not new.completed then
+      kind := 'uncompleted';
+    end if;
+    if kind is not null then
+      insert into public.notifications
+        (user_id, type, task_id, project_id, actor_id, actor_name, task_title, project_name, due_date, due_time, recipient_email, send_email)
+      select p.id, kind, new.id, new.project_id, actor, coalesce(actor_nm, 'Someone'), new.title,
+             coalesce(proj_nm, ''), new.due_date, new.due_time, p.email, p.email_on_complete
+        from public.profiles p where p.id = new.created_by;
+    end if;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists notify_task_change on public.tasks;
+create trigger notify_task_change
+  after insert or update on public.tasks
+  for each row execute function public.notify_task_change();
+
 -- Only signed-in users get table access; anonymous visitors get nothing.
 revoke all on all tables in schema public from anon;
 grant select, insert, update, delete on all tables in schema public to authenticated;
@@ -358,7 +462,7 @@ grant select, insert, update, delete on all tables in schema public to authentic
 do $$
 declare t text;
 begin
-  foreach t in array array['profiles', 'projects', 'project_members', 'sections', 'tasks', 'filters'] loop
+  foreach t in array array['profiles', 'projects', 'project_members', 'sections', 'tasks', 'filters', 'notifications'] loop
     if not exists (select 1 from pg_publication_tables
                     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
       execute format('alter publication supabase_realtime add table public.%I', t);

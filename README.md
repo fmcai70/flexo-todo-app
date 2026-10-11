@@ -12,6 +12,7 @@ A project and task tracker in the style of Todoist, with role-based project acce
 - **Repeating tasks** (daily, weekdays, weekly, every 2 weeks, monthly, yearly), **due times** and **reminders**
 - **Sections** inside projects, and a **Board view** (columns you can drag cards between)
 - **Labels** (`@urgent`), **saved filters** with Todoist-style queries (`p1 & @urgent | overdue`) and **search**
+- **Notifications** (🔔) when someone assigns you a task or completes a task you created, with optional **email** through your SMTP server
 
 ## Run it
 
@@ -61,6 +62,7 @@ When you change the app, bump `CACHE` in `sw.js` (e.g. `flexo-todo-v2`) so insta
 | `cloud.js` | Sign-in, loading and saving to Supabase, live updates |
 | `supabase/schema.sql` | Database tables and the **server-side access rules** (Row Level Security) |
 | `supabase/rls_tests.sql` | 5-user permission test against the real database |
+| `supabase/functions/notify-email/` | Supabase function that sends notification emails via SMTP |
 | `supabase/SETUP.md` | Step-by-step setup for the admin |
 
 ## Note on security

@@ -179,6 +179,22 @@
     await remove('projects', P.removed.map((p) => p.id));
   }
 
+  // ---- notifications ---------------------------------------------------
+  // Rows are created by the database (see schema.sql); people can only read and mark them.
+  async function loadNotifications() {
+    return check(await sb.from('notifications').select('*').order('created_at', { ascending: false }).limit(50));
+  }
+  async function markNotificationsRead(ids) {
+    if (ids.length) check(await sb.from('notifications').update({ read_at: new Date().toISOString() }).in('id', ids));
+  }
+  async function getEmailPrefs(userId) {
+    return check(await sb.from('profiles').select('email, email_on_assign, email_on_complete').eq('id', userId).single());
+  }
+  async function setEmailPrefs(userId, prefs) {
+    const data = check(await sb.from('profiles').update(prefs).eq('id', userId).select('id'));
+    if (!data.length) throw new Error('You don\'t have permission to do that');
+  }
+
   // ---- live updates ----------------------------------------------------
   let channel = null;
   function subscribe(onChange) {
@@ -197,5 +213,6 @@
     linkError, // e.g. "Email link is invalid or has expired"
     getSession, signIn, sendSignInLink, sendPasswordReset, setPassword, signOut, onAuth, updateMyName,
     loadState, pushDiff, subscribe, unsubscribe,
+    loadNotifications, markNotificationsRead, getEmailPrefs, setEmailPrefs,
   };
 })();
