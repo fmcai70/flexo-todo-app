@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Flexo Todo</title>
+  <meta name="theme-color" content="#dc4c3e">
+  <meta name="description" content="Project and task tracker with project managers, members and admin access.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Flexo Todo">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="icon-btn menu-btn" id="menuBtn" aria-label="Toggle sidebar">☰</button>
+    <div class="brand">✔ Flexo Todo</div>
+    <div class="spacer"></div>
+    <label class="signed-in">
+      <span>Signed in as</span>
+      <select id="userSelect" aria-label="Switch user"></select>
+    </label>
+    <button class="btn ghost small" id="installBtn" hidden>Install app</button>
+    <button class="btn ghost small" id="resetBtn" title="Restore the 5-user demo data">Reset demo</button>
+  </header>
+
+  <div class="layout">
+    <nav class="sidebar" id="sidebar">
+      <ul class="nav" id="viewNav">
+        <li data-view="today"><span class="nav-icon">📅</span>Today <span class="count" id="countToday"></span></li>
+        <li data-view="upcoming"><span class="nav-icon">🗓</span>Upcoming <span class="count" id="countUpcoming"></span></li>
+        <li data-view="mine"><span class="nav-icon">👤</span>Assigned to me <span class="count" id="countMine"></span></li>
+      </ul>
+      <div class="nav-heading">
+        <span>My Projects</span>
+        <button class="icon-btn" id="addProjectBtn" title="Add project" aria-label="Add project">＋</button>
+      </div>
+      <ul class="nav" id="projectNav"></ul>
+      <p class="hint" id="noProjects" hidden>You are not a member of any project yet. Create one, or ask a project manager to add you.</p>
+    </nav>
+
+    <main class="main" id="main">
+      <div class="main-header">
+        <div>
+          <h1 id="viewTitle"></h1>
+          <div class="sub" id="viewSub"></div>
+        </div>
+        <div class="header-actions" id="headerActions"></div>
+      </div>
+      <div class="members-bar" id="membersBar"></div>
+
+      <ul class="task-list" id="taskList"></ul>
+      <p class="empty" id="emptyState" hidden></p>
+
+      <form class="add-task" id="addTaskForm" hidden>
+        <input id="newTitle" placeholder="Task name, e.g. Send invoice" autocomplete="off" required>
+        <input id="newDesc" placeholder="Description" autocomplete="off">
+        <div class="row">
+          <input type="date" id="newDue" aria-label="Due date">
+          <select id="newPriority" aria-label="Priority">
+            <option value="1">Priority 1</option>
+            <option value="2">Priority 2</option>
+            <option value="3">Priority 3</option>
+            <option value="4" selected>Priority 4</option>
+          </select>
+          <select id="newAssignee" aria-label="Assignee"></select>
+          <div class="spacer"></div>
+          <button class="btn primary" type="submit">Add task</button>
+        </div>
+      </form>
+
+      <label class="show-completed"><input type="checkbox" id="showCompleted"> Show completed tasks</label>
+    </main>
+  </div>
+
+  <!-- Project create / settings dialog -->
+  <dialog id="projectDialog">
+    <form method="dialog" id="projectForm">
+      <h2 id="projectDialogTitle">Add project</h2>
+      <label>Name <input id="projName" required maxlength="80"></label>
+      <label>Color
+        <select id="projColor">
+          <option value="#db4035">Red</option>
+          <option value="#ff9933">Orange</option>
+          <option value="#fad000">Yellow</option>
+          <option value="#299438">Green</option>
+          <option value="#4073ff">Blue</option>
+          <option value="#884dff">Violet</option>
+          <option value="#808080">Grey</option>
+        </select>
+      </label>
+      <label>Project manager <select id="projManager"></select></label>
+      <fieldset>
+        <legend>Members</legend>
+        <div id="projMembers" class="checks"></div>
+      </fieldset>
+      <p class="error" id="projError"></p>
+      <div class="dialog-actions">
+        <button class="btn danger ghost" type="button" id="projDelete" hidden>Delete project</button>
+        <div class="spacer"></div>
+        <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn primary" value="save" id="projSave">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Task edit dialog -->
+  <dialog id="taskDialog">
+    <form method="dialog" id="taskForm">
+      <h2>Edit task</h2>
+      <label>Title <input id="editTitle" required></label>
+      <label>Description <textarea id="editDesc" rows="3"></textarea></label>
+      <div class="row">
+        <label>Due <input type="date" id="editDue"></label>
+        <label>Priority
+          <select id="editPriority">
+            <option value="1">P1</option><option value="2">P2</option>
+            <option value="3">P3</option><option value="4">P4</option>
+          </select>
+        </label>
+        <label>Assignee <select id="editAssignee"></select></label>
+      </div>
+      <p class="meta" id="editMeta"></p>
+      <p class="error" id="taskError"></p>
+      <div class="dialog-actions">
+        <button class="btn danger ghost" type="button" id="taskDelete">Delete</button>
+        <div class="spacer"></div>
+        <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn primary" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script src="store.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

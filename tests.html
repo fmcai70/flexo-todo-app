@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flexo Todo tests</title>
+  <style>
+    body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; color: #202020; }
+    h1 { font-size: 20px; }
+    h2 { font-size: 15px; margin: 22px 0 6px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+    #summary { font-weight: 700; padding: 10px 14px; border-radius: 6px; }
+    #summary.pass { background: #e7f6ea; color: #1b6e2e; }
+    #summary.fail { background: #fdecea; color: #a81f00; }
+    .result { padding: 3px 0; font-size: 14px; }
+    .result.pass { color: #1b6e2e; }
+    .result.fail { color: #a81f00; font-weight: 600; }
+    a { color: #dc4c3e; }
+  </style>
+</head>
+<body>
+  <h1>Flexo Todo — 5-user permission test scenario</h1>
+  <p>Users: Alice (Admin), Bob (PM Website), Carol (PM Mobile, member Website), Dave (member Mobile), Eve (no projects). <a href="index.html">Open the app →</a></p>
+  <div id="summary">Running…</div>
+  <div id="results"></div>
+  <script src="store.js"></script>
+  <script src="tests.js"></script>
+</body>
+</html>
