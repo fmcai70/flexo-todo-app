@@ -232,10 +232,11 @@
     return state;
   }
 
-  function createStore(initialState, onChange) {
+  /** opts.newId: id generator (e.g. crypto.randomUUID for the shared database). */
+  function createStore(initialState, onChange, opts = {}) {
     const state = normalize(initialState ? clone(initialState) : seedData());
-    const notify = () => { if (onChange) onChange(state); };
-    const newId = (prefix) => prefix + (state.nextId++);
+    const notify = () => { if (onChange) onChange(clone(state)); };
+    const newId = opts.newId ? () => opts.newId() : (prefix) => prefix + (state.nextId++);
 
     // ---- lookups -------------------------------------------------------
     function findUser(id) {
@@ -522,19 +523,23 @@
 
     function getTask(actorId, taskId) { return clone(requireTask(actorId, taskId)); }
 
-    /** projectId null (or 'inbox') creates a personal task in the actor's Inbox. */
-    function createTask(actorId, projectId, fields = {}) {
-      findUser(actorId);
-      if (projectId === 'inbox') projectId = null;
+    function buildTask(actorId, projectId, fields, parentId) {
       const p = projectId === null ? null : requireView(actorId, projectId);
       const defaults = { priority: 4, dueDate: null, dueTime: null, recurrence: null, reminder: null, labels: [], assigneeId: null, sectionId: null, description: '' };
       const f = validateTaskFields(p, Object.assign(defaults, fields, { title: fields.title }), actorId, null);
-      const t = {
-        id: newId('t'), projectId, parentId: null, sectionId: f.sectionId, title: f.title, description: f.description,
+      return {
+        id: newId('t'), projectId, parentId, sectionId: f.sectionId, title: f.title, description: f.description,
         createdBy: actorId, assigneeId: f.assigneeId, dueDate: f.dueDate, dueTime: f.dueTime,
         recurrence: f.recurrence, reminder: f.reminder, labels: f.labels, priority: f.priority,
         completed: false, completedAt: null, lastCompletedAt: null, createdAt: new Date().toISOString(),
       };
+    }
+
+    /** projectId null (or 'inbox') creates a personal task in the actor's Inbox. */
+    function createTask(actorId, projectId, fields = {}) {
+      findUser(actorId);
+      if (projectId === 'inbox') projectId = null;
+      const t = buildTask(actorId, projectId, fields, null);
       state.tasks.push(t);
       notify();
       return clone(t);
@@ -550,13 +555,12 @@
       const parent = requireTask(actorId, parentId);
       if (parent.parentId) throw new ValidationError('Subtasks cannot have their own subtasks');
       if (fields.sectionId) throw new ValidationError('Subtasks stay in their parent\'s section');
-      const t = createTask(actorId, parent.projectId, fields);
-      const stored = findTask(t.id);
-      stored.parentId = parent.id;
+      const t = buildTask(actorId, parent.projectId, fields, parent.id);
+      state.tasks.push(t);
       // Adding open work under a finished task reopens it.
       if (parent.completed) { parent.completed = false; parent.completedAt = null; }
       notify();
-      return clone(stored);
+      return clone(t);
     }
 
     function listSubtasks(actorId, taskId) {

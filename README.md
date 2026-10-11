@@ -15,11 +15,17 @@ A project and task tracker in the style of Todoist, with role-based project acce
 
 ## Run it
 
-No install or build step is needed. It's plain HTML, CSS and JavaScript.
+No install or build step is needed. It's plain HTML, CSS and JavaScript, plus a [Supabase](https://supabase.com) database.
 
-1. Open `index.html` in Chrome, Edge or Firefox. Data is saved in the browser's localStorage.
-2. Use the **Signed in as** dropdown to switch between the 5 demo users.
-3. Open `tests.html` to run the automated 5-user permission tests.
+The app has two modes:
+
+| Mode | How | Data |
+|------|-----|------|
+| **Shared** (default) | Sign in with your Flexo email and password | Stored in Supabase and synced live between everyone. Access rules are enforced by the database |
+| **Demo** | **Try the demo** on the sign-in screen | 5 sample users with a **Demo user** switcher. Kept only in that browser |
+
+- **First-time setup** (admin, once): follow [supabase/SETUP.md](supabase/SETUP.md). It creates the database, adds users and makes `rogerick.aban@flexo.com.ph` the admin.
+- **Tests:** open `tests.html` to run the 78 app-logic tests. Run `supabase/rls_tests.sql` in the Supabase SQL Editor to check the same 5-user permission rules against the real database.
 
 > If your browser blocks scripts on `file://`, serve the folder with any static server,
 > or use the GitHub Pages link below.
@@ -35,10 +41,10 @@ The app is a Progressive Web App (PWA). Once it's published on GitHub Pages you 
 | **Android** (Chrome) | Open the link → tap **Install app** in the top bar, or go to menu ⋮ → **Install app** / **Add to Home screen** |
 | **iPhone / iPad** (Safari) | Open the link → tap **Share** → **Add to Home Screen** → **Add** |
 
-After installing, it opens full screen from its own icon and works offline.
-Each phone keeps **its own copy of the data** (there's no shared server yet).
+After installing, it opens full screen from its own icon. Shared mode needs an internet connection; the demo also works offline.
+In shared mode, everyone sees the same live data on every device. Demo mode keeps its data only on that device.
 
-**Reminders** pop up while the app is open (or was recently opened). Tap **🔔 Enable reminders** to get them as phone notifications on Android and desktop. On iPhone they show inside the app. Reminders that arrive while the app is fully closed need the upcoming Supabase back end.
+**Reminders** pop up while the app is open (or was recently opened). Tap **🔔 Enable reminders** to get them as phone notifications on Android and desktop. On iPhone they show inside the app. Reminders while the app is fully closed would need push notifications from a server (a possible next step).
 
 When you change the app, bump `CACHE` in `sw.js` (e.g. `flexo-todo-v2`) so installed phones load the new version.
 
@@ -46,15 +52,17 @@ When you change the app, bump `CACHE` in `sw.js` (e.g. `flexo-todo-v2`) so insta
 
 | File | Purpose |
 |------|---------|
-| `store.js` | Data model and **all permission rules** (no DOM, unit-testable) |
-| `app.js` | UI rendering and localStorage persistence |
+| `store.js` | Data model and permission rules used by the app (no DOM, unit-testable) |
+| `app.js` | UI rendering, sign-in screen, demo mode and saving changes |
 | `index.html`, `styles.css` | App shell and styling |
 | `tests.html`, `tests.js` | 78 automated tests covering the 5-user scenario |
 | `TEST_SCENARIO.md` | User/role matrix, permission table and manual test steps |
 | `manifest.webmanifest`, `sw.js`, `icons/` | Makes it installable on phones and usable offline |
+| `cloud.js` | Sign-in, loading and saving to Supabase, live updates |
+| `supabase/schema.sql` | Database tables and the **server-side access rules** (Row Level Security) |
+| `supabase/rls_tests.sql` | 5-user permission test against the real database |
+| `supabase/SETUP.md` | Step-by-step setup for the admin |
 
 ## Note on security
 
-This is a client-side demo. The user switcher stands in for a login, and all checks run in the browser.
-For production, put the same rules from `store.js` behind a server API with real authentication and a database,
-so the server enforces them instead of the browser.
+In shared mode, people sign in with Supabase Auth and **the database enforces every access rule** (see `supabase/schema.sql`). Even someone who edits the app in their browser can only read or change what their role allows.

@@ -1,24 +1,30 @@
-/* UI layer: renders the store for the signed-in user and persists to localStorage. */
+/*
+ * UI layer: renders the store for the signed-in user.
+ *
+ * Two modes:
+ *   - shared (default): sign in, data lives in Supabase (cloud.js) and syncs live between people
+ *   - demo: the 5 sample users, data kept only in this browser (localStorage)
+ */
 (function () {
   'use strict';
 
   const STORAGE_KEY = 'flexoTodo.data.v1';
   const USER_KEY = 'flexoTodo.user';
+  const MODE_KEY = 'flexoTodo.mode';
   const NOTIFIED_KEY = 'flexoTodo.notified';
   const VIEWMODE_KEY = 'flexoTodo.viewMode';
   const { createStore, isoDate, RECURRENCE, REMINDERS } = window.TaskStore;
+  const Cloud = window.FlexoCloud; // undefined if the Supabase library couldn't load
 
   // ---- persistence (wrapped: storage can be unavailable in private windows) ----
   function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
   function save(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* ignore */ } }
   function loadJSON(key, fallback) { try { return JSON.parse(load(key)) || fallback; } catch (e) { return fallback; } }
 
-  const saved = loadJSON(STORAGE_KEY, null);
-  let store = createStore(saved, (state) => save(STORAGE_KEY, JSON.stringify(state)));
-  if (!saved) save(STORAGE_KEY, JSON.stringify(store.state));
-
-  let currentUser = load(USER_KEY) || 'u1';
-  if (!store.listUsers().some((u) => u.id === currentUser)) currentUser = 'u1';
+  let mode = load(MODE_KEY) === 'demo' ? 'demo' : 'cloud';
+  let store = null;
+  let currentUser = null;
+  let synced = null; // cloud mode: the state the database is known to have
   // current: { type: 'view', id } | { type: 'project', id } | { type: 'label', id } | { type: 'filter', id } | { type: 'search', q }
   let current = { type: 'view', id: 'today' };
   let showCompleted = false;
@@ -103,8 +109,16 @@
   }
 
   function renderTopbar() {
-    $('userSelect').replaceChildren(...store.listUsers().map((u) =>
-      el('option', { value: u.id, selected: u.id === currentUser }, u.name + (u.role === 'admin' ? ' (Admin)' : ''))));
+    const demo = mode === 'demo';
+    ['demoUser', 'resetBtn', 'exitDemoBtn'].forEach((id) => { $(id).hidden = !demo; });
+    ['meBtn', 'signOutBtn'].forEach((id) => { $(id).hidden = demo; });
+    if (demo) {
+      $('userSelect').replaceChildren(...store.listUsers().map((u) =>
+        el('option', { value: u.id, selected: u.id === currentUser }, u.name + (u.role === 'admin' ? ' (Admin)' : ''))));
+    } else {
+      const me = userById(currentUser);
+      $('meBtn').textContent = '👤 ' + me.name + (me.role === 'admin' ? ' · Admin' : '');
+    }
     $('notifyBtn').hidden = !('Notification' in window) || Notification.permission !== 'default';
     if (current.type !== 'search' && document.activeElement !== $('searchInput')) $('searchInput').value = '';
   }
@@ -678,6 +692,7 @@
   // ---- reminders -----------------------------------------------------
   // Checked every 30 s while the app is open. Each reminder fires once per occurrence.
   function checkReminders() {
+    if (!store) return;
     const notified = loadJSON(NOTIFIED_KEY, {});
     const cutoff = Date.now() - 3 * 24 * 3600 * 1000;
     Object.keys(notified).forEach((k) => { if (notified[k] < cutoff) delete notified[k]; });
@@ -713,6 +728,7 @@
 
   // ---- global controls -----------------------------------------------
   $('userSelect').addEventListener('change', (e) => {
+    if (mode !== 'demo') return;
     currentUser = e.target.value;
     save(USER_KEY, currentUser);
     current = { type: 'view', id: 'today' };
@@ -743,6 +759,208 @@
     toast('Demo data restored');
     render();
   });
+
+  // ---- start-up: demo or shared mode -----------------------------------
+  function showScreen(which) {
+    $('loadingScreen').hidden = which !== 'loading';
+    $('authScreen').hidden = which !== 'auth';
+    $('appShell').hidden = which !== 'app';
+  }
+
+  function startDemo() {
+    mode = 'demo';
+    save(MODE_KEY, 'demo');
+    const saved = loadJSON(STORAGE_KEY, null);
+    store = createStore(saved, (state) => save(STORAGE_KEY, JSON.stringify(state)));
+    if (!saved) save(STORAGE_KEY, JSON.stringify(store.state));
+    currentUser = load(USER_KEY) || 'u1';
+    if (!store.listUsers().some((u) => u.id === currentUser)) currentUser = 'u1';
+    current = { type: 'view', id: 'today' };
+    $('syncStatus').hidden = true;
+    showScreen('app');
+    render();
+    checkReminders();
+  }
+
+  $('exitDemoBtn').addEventListener('click', () => {
+    save(MODE_KEY, 'cloud');
+    mode = 'cloud';
+    store = null;
+    showAuth();
+  });
+  $('demoBtn').addEventListener('click', startDemo);
+
+  // ---- shared mode: sign-in ------------------------------------------
+  function showAuth(errorText, infoText) {
+    showScreen('auth');
+    $('signInForm').hidden = false;
+    $('newPasswordForm').hidden = true;
+    $('authSub').textContent = 'Sign in with your Flexo account';
+    $('authError').textContent = errorText || '';
+    $('authInfo').textContent = infoText || '';
+  }
+  function authBusy(busy) {
+    document.querySelectorAll('#authScreen button, #authScreen input').forEach((n) => { n.disabled = busy; });
+  }
+  async function authAction(fn, info) {
+    $('authError').textContent = '';
+    $('authInfo').textContent = '';
+    authBusy(true);
+    try {
+      await fn();
+      if (info) $('authInfo').textContent = info;
+    } catch (err) {
+      $('authError').textContent = /Invalid login credentials/i.test(err.message)
+        ? 'Wrong email or password.' : err.message;
+    } finally { authBusy(false); }
+  }
+  const authEmail = () => {
+    const email = $('authEmail').value.trim();
+    if (!email) { $('authError').textContent = 'Enter your email first.'; $('authEmail').focus(); }
+    return email;
+  };
+
+  $('signInForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!$('authPassword').value) { $('authError').textContent = 'Enter your password, or use "Email me a sign-in link".'; return; }
+    authAction(() => Cloud.signIn($('authEmail').value, $('authPassword').value));
+  });
+  $('magicLinkBtn').addEventListener('click', () => {
+    const email = authEmail();
+    if (email) authAction(() => Cloud.sendSignInLink(email), 'Check your email for a sign-in link (it can take a minute).');
+  });
+  $('forgotBtn').addEventListener('click', () => {
+    const email = authEmail();
+    if (email) authAction(() => Cloud.sendPasswordReset(email), 'Check your email for a link to set a new password.');
+  });
+  $('newPasswordForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    authAction(async () => {
+      await Cloud.setPassword($('newPassword').value);
+      $('newPassword').value = '';
+      const session = await Cloud.getSession();
+      if (session) enterCloud(session);
+    });
+  });
+  $('signOutBtn').addEventListener('click', async () => {
+    Cloud.unsubscribe();
+    await Cloud.signOut();
+    store = null;
+    showAuth('', 'You have signed out.');
+  });
+  $('meBtn').addEventListener('click', () => {
+    const me = userById(currentUser);
+    const name = prompt('Your display name:', me.name);
+    if (name === null || !name.trim() || name.trim() === me.name) return;
+    Cloud.updateMyName(currentUser, name).then(() => { toast('Name updated'); reloadCloud(); })
+      .catch((err) => toast(err.message, true));
+  });
+
+  // ---- shared mode: data ---------------------------------------------
+  let writeQueue = Promise.resolve();
+  let pendingWrites = 0;
+  let reloadWanted = false;
+  let reloadTimer = null;
+
+  function setSync(text) {
+    $('syncStatus').hidden = !text;
+    $('syncStatus').textContent = text || '';
+  }
+
+  // Every store action → save the difference to the database, one change at a time, in order.
+  function onCloudChange(state) {
+    const prev = synced;
+    synced = state;
+    pendingWrites++;
+    setSync('Saving…');
+    writeQueue = writeQueue
+      .then(() => Cloud.pushDiff(prev, state))
+      .catch((err) => {
+        toast('Not saved: ' + err.message, true, 6000);
+        reloadWanted = true; // put the screen back in line with the database
+      })
+      .finally(() => {
+        pendingWrites--;
+        if (!pendingWrites) {
+          setSync(navigator.onLine === false ? 'Offline' : 'Saved');
+          if (reloadWanted) reloadCloud();
+        }
+      });
+  }
+
+  async function reloadCloud() {
+    if (pendingWrites) { reloadWanted = true; return; }
+    reloadWanted = false;
+    try {
+      const state = await Cloud.loadState();
+      if (pendingWrites) { reloadWanted = true; return; } // a change started meanwhile; reload after it
+      store = createStore(state, onCloudChange, { newId: () => crypto.randomUUID() });
+      synced = store.state;
+      if (!$('appShell').hidden) render();
+    } catch (err) {
+      setSync('Offline');
+      toast('Could not load the latest data: ' + err.message, true, 5000);
+    }
+  }
+  // Live updates from other people: reload shortly after the last change.
+  function scheduleReload() {
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(reloadCloud, 400);
+  }
+
+  let entering = false;
+  async function enterCloud(session) {
+    if (entering || (store && currentUser === session.user.id && mode === 'cloud')) return;
+    entering = true;
+    try {
+      mode = 'cloud';
+      currentUser = session.user.id;
+      showScreen('loading');
+      const state = await Cloud.loadState();
+      if (!state.users.some((u) => u.id === currentUser)) {
+        await Cloud.signOut();
+        showAuth('Your account is not set up yet. Ask the admin to run the database setup (supabase/schema.sql).');
+        return;
+      }
+      store = createStore(state, onCloudChange, { newId: () => crypto.randomUUID() });
+      synced = store.state;
+      current = { type: 'view', id: 'today' };
+      setSync('Saved');
+      showScreen('app');
+      render();
+      checkReminders();
+      Cloud.subscribe(scheduleReload);
+    } catch (err) {
+      showAuth('Could not load your data: ' + err.message);
+    } finally { entering = false; }
+  }
+
+  async function startCloud() {
+    if (!Cloud) {
+      showAuth('Could not reach the sign-in service. Check your internet connection and reload. You can still try the demo.');
+      $('signInForm').hidden = true;
+      return;
+    }
+    Cloud.onAuth((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        // Arrived from a "set a new password" email.
+        showScreen('auth');
+        $('signInForm').hidden = true;
+        $('newPasswordForm').hidden = false;
+        $('authSub').textContent = 'Choose a new password';
+        $('authError').textContent = '';
+        $('authInfo').textContent = '';
+      } else if (event === 'SIGNED_IN' && session && $('newPasswordForm').hidden) {
+        enterCloud(session);
+      } else if (event === 'SIGNED_OUT' && mode === 'cloud') {
+        store = null;
+        showAuth();
+      }
+    });
+    const session = await Cloud.getSession();
+    if (session && $('newPasswordForm').hidden) enterCloud(session);
+    else if (!session && !location.hash.includes('access_token')) showAuth();
+  }
   $('menuBtn').addEventListener('click', () => $('sidebar').classList.toggle('open'));
   function closeSidebar() { $('sidebar').classList.remove('open'); }
 
@@ -781,9 +999,15 @@
     }
   });
 
-  render();
-  checkReminders();
+  if (mode === 'demo') startDemo();
+  else startCloud();
   setInterval(() => { checkReminders(); }, 30000);
-  // Re-render when the user comes back so "Today"/overdue colours stay current.
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); checkReminders(); } });
+  // Coming back to the app: refresh "Today"/overdue colours, and catch up on others' changes.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !store) return;
+    if (mode === 'cloud') reloadCloud(); else render();
+    checkReminders();
+  });
+  window.addEventListener('online', () => { if (mode === 'cloud' && store) reloadCloud(); });
+  window.addEventListener('offline', () => { if (mode === 'cloud') setSync('Offline'); });
 })();

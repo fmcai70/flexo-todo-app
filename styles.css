@@ -105,6 +105,25 @@ button.sub-badge:hover { color: var(--text); }
 .subtasks .row input { flex: 1; min-width: 0; }
 #parentLink a { color: var(--accent); }
 
+/* Sign-in screen */
+.auth { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; background: var(--sidebar); }
+.auth-card { width: min(380px, 100%); background: #fff; border-radius: 12px; padding: 28px 24px; box-shadow: 0 6px 30px rgba(0,0,0,.08); text-align: center; }
+.auth-logo { border-radius: 12px; }
+.auth-card h1 { margin: 10px 0 4px; font-size: 22px; }
+.auth-sub { color: var(--muted); margin: 0 0 18px; }
+.auth-card form { display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.auth-card label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #555; }
+.auth-card input { border: 1px solid #ddd; border-radius: 6px; padding: 9px 10px; font-size: 15px; }
+.auth-card input:focus { outline: 2px solid #f4b6ae; border-color: var(--accent); }
+.btn.block { width: 100%; padding: 9px 12px; }
+.link-btn { border: none; background: none; color: var(--accent); cursor: pointer; padding: 4px; font-size: 13px; }
+.link-btn:hover { text-decoration: underline; }
+.auth-info { color: var(--today); font-size: 13px; margin: 4px 0; }
+.auth-divider { border-top: 1px solid var(--line); margin: 14px 0 8px; }
+.loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.sync { font-size: 12px; color: rgba(255,255,255,.85); white-space: nowrap; }
+.topbar .me { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* Search */
 .search { flex: 0 1 260px; min-width: 0; }
 .search input {
@@ -198,6 +217,8 @@ legend { font-size: 12px; color: #555; padding: 0 4px; }
   .hide-sm { display: none; }
   .search { flex: 1 1 90px; }
   .topbar .brand { display: none; }
+  .topbar .me { max-width: 96px; }
+  .sync { display: none; }
   .signed-in select { max-width: 120px; }
   .column { flex-basis: 78vw; }
   .main-header { flex-wrap: wrap; }

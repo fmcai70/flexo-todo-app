@@ -16,6 +16,36 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- Sign-in screen (shared database mode) -->
+  <section class="auth" id="authScreen" hidden>
+    <div class="auth-card">
+      <img src="icons/icon-192.png" alt="" width="56" height="56" class="auth-logo">
+      <h1>Flexo Todo</h1>
+      <p class="auth-sub" id="authSub">Sign in with your Flexo account</p>
+
+      <form id="signInForm">
+        <label>Email <input type="email" id="authEmail" autocomplete="username" required></label>
+        <label>Password <input type="password" id="authPassword" autocomplete="current-password"></label>
+        <button class="btn primary block" type="submit" id="signInBtn">Sign in</button>
+        <button class="btn ghost block" type="button" id="magicLinkBtn">Email me a sign-in link instead</button>
+        <button class="link-btn" type="button" id="forgotBtn">Forgot password?</button>
+      </form>
+
+      <form id="newPasswordForm" hidden>
+        <label>New password <input type="password" id="newPassword" minlength="8" autocomplete="new-password" required></label>
+        <button class="btn primary block" type="submit">Save new password</button>
+      </form>
+
+      <p class="error" id="authError" role="alert"></p>
+      <p class="auth-info" id="authInfo" role="status"></p>
+      <div class="auth-divider"></div>
+      <button class="link-btn" type="button" id="demoBtn">Try the demo with sample data (no account needed)</button>
+    </div>
+  </section>
+
+  <div class="loading" id="loadingScreen">Loading…</div>
+
+  <div id="appShell" hidden>
   <header class="topbar">
     <button class="icon-btn menu-btn" id="menuBtn" aria-label="Toggle sidebar">☰</button>
     <div class="brand">✔ Flexo Todo</div>
@@ -23,13 +53,19 @@
       <input type="search" id="searchInput" placeholder="Search tasks" aria-label="Search tasks" autocomplete="off">
     </form>
     <div class="spacer"></div>
+    <span class="sync" id="syncStatus" role="status" hidden></span>
     <button class="btn ghost small" id="notifyBtn" hidden title="Allow reminder notifications">🔔<span class="hide-sm"> Enable reminders</span></button>
-    <label class="signed-in">
-      <span>Signed in as</span>
-      <select id="userSelect" aria-label="Switch user"></select>
+    <!-- Demo mode: switch between the 5 sample users -->
+    <label class="signed-in" id="demoUser" hidden>
+      <span>Demo user</span>
+      <select id="userSelect" aria-label="Switch demo user"></select>
     </label>
+    <!-- Shared mode: the signed-in person -->
+    <button class="btn ghost small me" id="meBtn" hidden title="Change your display name"></button>
     <button class="btn ghost small" id="installBtn" hidden>Install app</button>
-    <button class="btn ghost small" id="resetBtn" title="Restore the 5-user demo data">Reset<span class="hide-sm"> demo</span></button>
+    <button class="btn ghost small" id="resetBtn" hidden title="Restore the 5-user demo data">Reset<span class="hide-sm"> demo</span></button>
+    <button class="btn ghost small" id="exitDemoBtn" hidden title="Leave the demo and go to sign-in">Exit<span class="hide-sm"> demo</span></button>
+    <button class="btn ghost small" id="signOutBtn" hidden>Sign out</button>
   </header>
 
   <div class="layout">
@@ -93,6 +129,7 @@
 
       <label class="show-completed"><input type="checkbox" id="showCompleted"> Show completed tasks</label>
     </main>
+  </div>
   </div>
 
   <!-- Project create / settings dialog -->
@@ -202,7 +239,9 @@
 
   <div class="toast" id="toast" role="status" hidden></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.min.js"></script>
   <script src="store.js"></script>
+  <script src="cloud.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

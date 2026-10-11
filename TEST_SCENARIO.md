@@ -58,7 +58,7 @@ Open `tests.html` in a browser. It runs 78 checks in 11 groups and shows **PASS/
 
 ## Manual walkthrough
 
-Use the **Signed in as** dropdown to switch users. **Reset demo** restores the starting data.
+On the sign-in screen, tap **Try the demo**, then use the **Demo user** dropdown to switch users. **Reset demo** restores the starting data. (To check the same rules on the real database, run `supabase/rls_tests.sql`. See [supabase/SETUP.md](supabase/SETUP.md).)
 
 | Step | Sign in as | Do this | Expected result |
 |------|-----------|---------|-----------------|
