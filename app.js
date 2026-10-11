@@ -833,13 +833,28 @@
     const email = authEmail();
     if (email) authAction(() => Cloud.sendPasswordReset(email), 'Check your email for a link to set a new password.');
   });
+  // Opened from a "reset password" email: hold here until a new password is saved.
+  let recovering = !!(Cloud && Cloud.cameFromPasswordReset);
+  function showNewPassword() {
+    recovering = true;
+    showScreen('auth');
+    $('signInForm').hidden = true;
+    $('newPasswordForm').hidden = false;
+    $('authSub').textContent = 'Choose a new password';
+    $('authError').textContent = '';
+    $('authInfo').textContent = '';
+    $('newPassword').focus();
+  }
   $('newPasswordForm').addEventListener('submit', (e) => {
     e.preventDefault();
     authAction(async () => {
+      const session = await Cloud.getSession();
+      if (!session) throw new Error('This reset link has expired. Go back and tap "Forgot password?" again.');
       await Cloud.setPassword($('newPassword').value);
       $('newPassword').value = '';
-      const session = await Cloud.getSession();
-      if (session) enterCloud(session);
+      recovering = false;
+      toast('Password saved');
+      enterCloud(session);
     });
   });
   $('signOutBtn').addEventListener('click', async () => {
@@ -910,7 +925,7 @@
 
   let entering = false;
   async function enterCloud(session) {
-    if (entering || (store && currentUser === session.user.id && mode === 'cloud')) return;
+    if (recovering || entering || (store && currentUser === session.user.id && mode === 'cloud')) return;
     entering = true;
     try {
       mode = 'cloud';
@@ -922,6 +937,7 @@
         showAuth('Your account is not set up yet. Ask the admin to run the database setup (supabase/schema.sql).');
         return;
       }
+      if (recovering) return; // a reset link was detected while loading
       store = createStore(state, onCloudChange, { newId: () => crypto.randomUUID() });
       synced = store.state;
       current = { type: 'view', id: 'today' };
@@ -941,25 +957,27 @@
       $('signInForm').hidden = true;
       return;
     }
+    if (Cloud.linkError) {
+      // e.g. an old or already-used email link.
+      showAuth(Cloud.linkError.replace(/\+/g, ' ') + '. Please request a new link.');
+      history.replaceState(null, '', location.pathname);
+    }
+    if (recovering) showNewPassword();
     Cloud.onAuth((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
-        // Arrived from a "set a new password" email.
-        showScreen('auth');
-        $('signInForm').hidden = true;
-        $('newPasswordForm').hidden = false;
-        $('authSub').textContent = 'Choose a new password';
-        $('authError').textContent = '';
-        $('authInfo').textContent = '';
-      } else if (event === 'SIGNED_IN' && session && $('newPasswordForm').hidden) {
+        showNewPassword();
+      } else if (event === 'SIGNED_IN' && session && !recovering) {
         enterCloud(session);
       } else if (event === 'SIGNED_OUT' && mode === 'cloud') {
+        recovering = false;
         store = null;
         showAuth();
       }
     });
     const session = await Cloud.getSession();
-    if (session && $('newPasswordForm').hidden) enterCloud(session);
-    else if (!session && !location.hash.includes('access_token')) showAuth();
+    if (recovering) return;
+    if (session) enterCloud(session);
+    else if (!Cloud.linkError) showAuth();
   }
   $('menuBtn').addEventListener('click', () => $('sidebar').classList.toggle('open'));
   function closeSidebar() { $('sidebar').classList.remove('open'); }
@@ -999,8 +1017,9 @@
     }
   });
 
-  if (mode === 'demo') startDemo();
-  else startCloud();
+  // A reset-password or sign-in link always opens the shared mode, even if the demo was last used.
+  if (mode === 'demo' && !(Cloud && (Cloud.cameFromPasswordReset || Cloud.linkError))) startDemo();
+  else { mode = 'cloud'; save(MODE_KEY, 'cloud'); startCloud(); }
   setInterval(() => { checkReminders(); }, 30000);
   // Coming back to the app: refresh "Today"/overdue colours, and catch up on others' changes.
   document.addEventListener('visibilitychange', () => {

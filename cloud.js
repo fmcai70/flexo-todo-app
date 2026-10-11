@@ -16,7 +16,15 @@
   const SUPABASE_KEY = 'sb_publishable_8gUb_7V26fIWP1GyXt7NZQ_uPsR1IoC';
 
   if (!window.supabase || !window.supabase.createClient) return; // library failed to load (offline)
-  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // Read the link we arrived from before the Supabase client consumes and clears it.
+  const startHash = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const cameFromPasswordReset = startHash.get('type') === 'recovery';
+  const linkError = startHash.get('error_description');
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { flowType: 'implicit', detectSessionInUrl: true, persistSession: true, autoRefreshToken: true },
+  });
   const appUrl = () => location.origin + location.pathname;
 
   // ---- column mapping: store (camelCase) ↔ database (snake_case) ----------
@@ -185,6 +193,8 @@
   }
 
   window.FlexoCloud = {
+    cameFromPasswordReset, // true when opened from a "reset password" email
+    linkError, // e.g. "Email link is invalid or has expired"
     getSession, signIn, sendSignInLink, sendPasswordReset, setPassword, signOut, onAuth, updateMyName,
     loadState, pushDiff, subscribe, unsubscribe,
   };
