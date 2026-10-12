@@ -1044,6 +1044,8 @@
     } catch (err) {
       $('authError').textContent = /Invalid login credentials/i.test(err.message) ? 'Wrong email or password.'
         : /No internet connection/i.test(err.message) ? 'Could not reach the sign-in server. Check your internet connection and try again.'
+          // Supabase's built-in email service only sends a few emails per hour.
+          : /rate limit/i.test(err.message) ? 'Too many emails were sent in the last hour. Wait about an hour before asking for another link, or sign in with your password.'
           : err.message;
     } finally { authBusy(false); }
   }
