@@ -11,6 +11,8 @@ GitHub Pages at https://fmcai70.github.io/flexo-todo-app/, with a Supabase back 
 - `supabase/rls_tests.sql`: 46-check 5-user permission test run in the Supabase SQL Editor.
 - `supabase/functions/notify-email/index.ts`: Edge Function that emails notifications via **Microsoft Graph** (Flexo uses Microsoft 365; Supabase blocks SMTP 587).
 - `sw.js`: offline cache. **Bump `CACHE` on every release** so installed phones update.
+- `vendor/supabase-js-2.117.3.min.js`: the Supabase library, served from this site (not a CDN) and cached by `sw.js`.
+  A CDN copy failed to load on a phone, which broke sign-in. To upgrade: `npm pack @supabase/supabase-js@X`, copy `dist/umd/supabase.js`.
 
 ## Roles and rules
 Admin sees/manages all projects. Project manager (set at creation; only admin can change it) manages members/sections.
@@ -29,7 +31,7 @@ creator, assignee and earlier commenters (if still on the project). In shared mo
 Done and live: projects/members/admin access, Inbox, subtasks, recurring tasks, due times, reminders (while the app is open),
 sections, board view, labels, saved filters, search, PWA install, Supabase sign-in, live sync, password reset
 (fixed: reset link now waits on the new-password screen), and in-app 🔔 notifications (code done).
-Task comments (code done, sw v9): live in demo mode; in shared mode they appear once schema.sql is re-run.
+Task comments (live, sw v10): live in demo mode; in shared mode they appear once schema.sql is re-run.
 
 Done by the owner: schema.sql run (first version), sign-up disabled, URL configuration, both users created.
 

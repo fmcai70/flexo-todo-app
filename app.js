@@ -1016,12 +1016,15 @@
   $('demoBtn').addEventListener('click', startDemo);
 
   // ---- shared mode: sign-in ------------------------------------------
+  const NO_CLOUD = 'Could not load the sign-in service. Check your internet connection and reload the page. You can still try the demo.';
   function showAuth(errorText, infoText) {
     notifications = [];
     notificationsAvailable = false;
     seenNotificationIds = null;
     showScreen('auth');
-    $('signInForm').hidden = false;
+    // Without the Supabase library there is nothing to sign in with, so only offer the demo.
+    $('signInForm').hidden = !Cloud;
+    if (!Cloud) errorText = errorText || NO_CLOUD;
     $('newPasswordForm').hidden = true;
     $('authSub').textContent = 'Sign in with your Flexo account';
     $('authError').textContent = errorText || '';
@@ -1031,6 +1034,7 @@
     document.querySelectorAll('#authScreen button, #authScreen input').forEach((n) => { n.disabled = busy; });
   }
   async function authAction(fn, info) {
+    if (!Cloud) { $('authError').textContent = NO_CLOUD; return; }
     $('authError').textContent = '';
     $('authInfo').textContent = '';
     authBusy(true);
@@ -1038,8 +1042,9 @@
       await fn();
       if (info) $('authInfo').textContent = info;
     } catch (err) {
-      $('authError').textContent = /Invalid login credentials/i.test(err.message)
-        ? 'Wrong email or password.' : err.message;
+      $('authError').textContent = /Invalid login credentials/i.test(err.message) ? 'Wrong email or password.'
+        : /No internet connection/i.test(err.message) ? 'Could not reach the sign-in server. Check your internet connection and try again.'
+          : err.message;
     } finally { authBusy(false); }
   }
   const authEmail = () => {
@@ -1184,8 +1189,7 @@
 
   async function startCloud() {
     if (!Cloud) {
-      showAuth('Could not reach the sign-in service. Check your internet connection and reload. You can still try the demo.');
-      $('signInForm').hidden = true;
+      showAuth(NO_CLOUD);
       return;
     }
     if (Cloud.linkError) {

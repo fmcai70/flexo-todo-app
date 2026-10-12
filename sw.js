@@ -2,9 +2,10 @@
  * Service worker: caches the app shell so the installed app opens offline.
  * Bump CACHE when shipping changes so phones pick up the new files.
  */
-const CACHE = 'flexo-todo-v9';
+const CACHE = 'flexo-todo-v10';
 const FILES = [
   './', './index.html', './styles.css', './store.js', './cloud.js', './app.js', './manifest.webmanifest',
+  './vendor/supabase-js-2.117.3.min.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png', './icons/favicon-32.png',
 ];
 
