@@ -60,6 +60,12 @@ Open https://fmcai70.github.io/flexo-todo-app/ and sign in with the email and pa
 - Changes appear for everyone within a second or two.
 - **Try the demo** on the sign-in screen still opens the offline sample data with the 5 demo users, which is handy for training.
 
+## 6b. Sign-in emails without the hourly limit
+
+Supabase's built-in email service only sends a few emails per hour, so password resets and sign-in links soon
+fail with "email rate limit exceeded". Send them through Microsoft 365 instead: see
+[`SMTP_OFFICE365.md`](SMTP_OFFICE365.md) (note the December 2026 deadline in it).
+
 ## 7. Email notifications (like Todoist)
 
 People get an email when someone **assigns them a task** or **comments** on a task they created, are assigned to, or commented on. They can also choose to get one when a task they created is **completed or reopened**. Notifications always show under the 🔔 bell in the app. Each person picks which ones they want by email (🔔 → **Email settings**).

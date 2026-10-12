@@ -44,6 +44,10 @@ Done by the owner: schema.sql run (first version), sign-up disabled, URL configu
    `MS_CLIENT_SECRET`, `MAIL_FROM`, `WEBHOOK_SECRET`, `APP_URL`, and create a Database Webhook on `notifications`
    (Insert) with header `x-webhook-secret`. See `supabase/SETUP.md` section 7.
 4. Optional: run `supabase/rls_tests.sql` (46 checks; owner skipped it so far).
+5. Sign-in emails hit Supabase's built-in email limit ("email rate limit exceeded"). Owner/IT are setting up custom
+   SMTP via Office 365 (`supabase/SMTP_OFFICE365.md`). That uses SMTP Basic auth, which Microsoft disables by default
+   at the end of Dec 2026 (tenant can re-enable until a 2027 final date). Lasting fix to build: a Supabase
+   **Send Email hook** Edge Function that sends auth emails via Microsoft Graph, reusing the `notify-email` Entra app.
 
 Not yet built (from the Todoist comparison): file attachments on tasks/comments, @mentions, activity history, calendar view,
 natural-language quick add, project templates/archiving, push notifications while the app is closed.
