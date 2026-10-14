@@ -17,7 +17,7 @@
 </head>
 <body>
   <!-- Sign-in screen (shared database mode) -->
-  <section class="auth" id="authScreen" hidden>
+  <section class="auth" id="authScreen" role="main" hidden>
     <div class="auth-card">
       <img src="icons/icon-192.png" alt="" width="56" height="56" class="auth-logo">
       <h1>Flexo Todo</h1>
@@ -93,6 +93,7 @@
       <p class="hint" id="noLabels" hidden>Add labels like <b>@urgent</b> to tasks and they'll show up here.</p>
     </nav>
 
+    <div class="backdrop" id="sidebarBackdrop" hidden></div>
     <main class="main" id="main">
       <div class="main-header">
         <div>
@@ -120,6 +121,7 @@
             <option value="3">Priority 3</option>
             <option value="4" selected>Priority 4</option>
           </select>
+          <select id="newProject" aria-label="Add to project"></select>
           <select id="newAssignee" aria-label="Assignee"></select>
           <select id="newSection" aria-label="Section"></select>
           <input id="newLabels" placeholder="@labels" autocomplete="off" aria-label="Labels" class="labels-input">

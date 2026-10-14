@@ -2,7 +2,7 @@
  * Service worker: caches the app shell so the installed app opens offline.
  * Bump CACHE when shipping changes so phones pick up the new files.
  */
-const CACHE = 'flexo-todo-v12';
+const CACHE = 'flexo-todo-v13';
 const FILES = [
   './', './index.html', './styles.css', './store.js', './cloud.js', './app.js', './manifest.webmanifest',
   './vendor/supabase-js-2.117.3.min.js',

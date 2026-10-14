@@ -50,7 +50,8 @@
   }
   const options = (pairs, selected) => pairs.map(([value, label]) =>
     el('option', { value, selected: String(value) === String(selected ?? '') }, label));
-  const AVATAR_COLORS = ['#b8255f', '#4073ff', '#299438', '#ff9933', '#884dff'];
+  // Dark enough for white initials to stay readable (contrast ≥ 4.5:1).
+  const AVATAR_COLORS = ['#b8255f', '#2f5fd0', '#1f7a2e', '#b45309', '#7a3fd6'];
   function avatar(user) {
     const idx = parseInt(user.id.replace(/\D/g, ''), 10) % AVATAR_COLORS.length;
     const initials = user.name.split(' ').map((s) => s[0]).join('').slice(0, 2).toUpperCase();
@@ -241,6 +242,7 @@
     $('emptyState').textContent = emptyText;
 
     renderAddForm(isProject ? project : null, isInbox, boardMode);
+    if (!tasks.length && !$('addTaskForm').hidden && current.type !== 'project') $('emptyState').textContent = emptyText + ' Add a task below.';
   }
 
   // Subtasks nested under their parent. A subtask whose parent is filtered out shows on its own.
@@ -279,7 +281,10 @@
   }
 
   function renderBoard(project, tasks) {
-    const sections = [{ id: null, name: 'No section' }, ...store.listSections(currentUser, project.id)];
+    const named = store.listSections(currentUser, project.id);
+    // An empty "No section" column only wastes space (a whole screen on phones) once there are sections.
+    const showNoSection = !named.length || tasks.some((t) => !t.parentId && !t.sectionId);
+    const sections = [...(showNoSection ? [{ id: null, name: 'No section' }] : []), ...named];
     const columns = sections.map((s) => {
       const cards = tasks.filter((t) => !t.parentId && (t.sectionId || null) === s.id);
       const col = el('div', { class: 'column', 'data-section': s.id || '' },
@@ -401,16 +406,43 @@
   }
 
   // ---- add task ------------------------------------------------------
-  function renderAddForm(project, isInbox, boardMode) {
-    // List views of a project and the Inbox get the full form; the board has per-column quick add.
-    $('addTaskForm').hidden = !((project && !boardMode) || isInbox);
+  // Project list views and the Inbox add straight into themselves. Today, Upcoming, Assigned to me
+  // and label views get an "Add to" picker (Inbox or any visible project) with sensible defaults.
+  let addFormContext = null;
+  const pickedProject = () => {
+    if (current.type === 'project') return store.getProject(currentUser, current.id);
+    if ($('newProject').hidden || !$('newProject').value) return null;
+    return store.getProject(currentUser, $('newProject').value);
+  };
+
+  function renderAddForm(projectView, isInbox, boardMode) {
+    const picker = !projectView && (current.type === 'label' || (current.type === 'view' && !isInbox));
+    $('addTaskForm').hidden = !((projectView && !boardMode) || isInbox || picker);
     if ($('addTaskForm').hidden) return;
-    $('newTitle').placeholder = isInbox ? 'Personal task, e.g. Renew passport' : 'Task name, e.g. Send invoice';
+    $('newProject').hidden = !picker;
+    if (picker) {
+      const keepProject = $('newProject').value;
+      const projects = store.listProjects(currentUser);
+      $('newProject').replaceChildren(...options([['', '📥 Inbox (private)'], ...projects.map((p) => [p.id, '# ' + p.name])],
+        projects.some((p) => p.id === keepProject) ? keepProject : ''));
+    }
+    // New view: start from that view's defaults (due today on Today, labelled on a label view, …).
+    const context = current.type + ':' + (current.id || '');
+    if (context !== addFormContext) {
+      addFormContext = context;
+      $('newDue').value = current.type === 'view' && current.id === 'today' ? isoDate(0) : '';
+      $('newLabels').value = current.type === 'label' ? '@' + current.id : '';
+      $('newAssignee').replaceChildren(); // re-pick the default assignee below
+    }
+    const project = projectView || pickedProject();
+    $('newTitle').placeholder = !project ? 'Personal task, e.g. Renew passport' : 'Task name, e.g. Send invoice';
     $('newAssignee').hidden = !project;
     if (!$('newRepeat').options.length) $('newRepeat').replaceChildren(...options(REPEAT_OPTIONS, ''));
     if (project) {
-      const keep = $('newAssignee').value;
-      $('newAssignee').replaceChildren(...options([['', 'Unassigned'], ...peopleOf(project).map((id) => [id, userById(id).name])], keep));
+      const people = peopleOf(project);
+      let keep = $('newAssignee').value;
+      if (!people.includes(keep)) keep = current.type === 'view' && current.id === 'mine' ? currentUser : '';
+      $('newAssignee').replaceChildren(...options([['', 'Unassigned'], ...people.map((id) => [id, userById(id).name])], keep));
       const sections = store.listSections(currentUser, project.id);
       const keepSection = $('newSection').value;
       $('newSection').replaceChildren(...options([['', 'No section'], ...sections.map((s) => [s.id, s.name])], keepSection));
@@ -420,11 +452,14 @@
     }
   }
 
+  $('newProject').addEventListener('change', () => { $('newSection').value = ''; render(); });
+
   $('addTaskForm').addEventListener('submit', (e) => {
     e.preventDefault();
-    const isProject = current.type === 'project';
+    const target = pickedProject();
+    const isProject = !!target;
     attempt(() => {
-      store.createTask(currentUser, isProject ? current.id : null, {
+      store.createTask(currentUser, isProject ? target.id : null, {
         title: $('newTitle').value,
         description: $('newDesc').value,
         dueDate: $('newDue').value,
@@ -435,9 +470,12 @@
         sectionId: isProject ? $('newSection').value : null,
         labels: $('newLabels').value,
       });
-      ['newTitle', 'newDesc', 'newDue', 'newTime', 'newLabels'].forEach((id) => { $(id).value = ''; });
+      ['newTitle', 'newDesc', 'newTime'].forEach((id) => { $(id).value = ''; });
       $('newRepeat').value = '';
-      toast('Task added');
+      addFormContext = null; // back to this view's defaults
+      // Say where it went when that isn't the list on screen.
+      toast(current.type === 'project' || (current.type === 'view' && current.id === 'inbox') ? 'Task added'
+        : 'Task added to ' + (target ? target.name : 'your Inbox'));
       render();
       $('newTitle').focus();
     });
@@ -738,6 +776,12 @@
   });
 
   $('taskDelete').addEventListener('click', () => {
+    // Deleting can't be undone and takes subtasks and comments with it, so ask first.
+    const t = store.getTask(currentUser, editingTaskId);
+    const subs = t.parentId ? 0 : store.listSubtasks(currentUser, t.id).length;
+    const notes = commentsOn() ? store.listComments(currentUser, t.id).length : 0;
+    const extra = [subs && subs + ' subtask' + (subs === 1 ? '' : 's'), notes && notes + ' comment' + (notes === 1 ? '' : 's')].filter(Boolean);
+    if (!confirm('Delete "' + t.title + '"' + (extra.length ? ' and its ' + extra.join(' and ') : '') + '? This can\'t be undone.')) return;
     attempt(() => {
       store.deleteTask(currentUser, editingTaskId);
       $('taskDialog').close();
@@ -1261,8 +1305,13 @@
     if (session) enterCloud(session);
     else if (!Cloud.linkError) showAuth();
   }
-  $('menuBtn').addEventListener('click', () => $('sidebar').classList.toggle('open'));
-  function closeSidebar() { $('sidebar').classList.remove('open'); }
+  function setSidebar(open) {
+    $('sidebar').classList.toggle('open', open);
+    $('sidebarBackdrop').hidden = !open; // phones: dim the page; tapping it closes the menu
+  }
+  $('menuBtn').addEventListener('click', () => setSidebar(!$('sidebar').classList.contains('open')));
+  $('sidebarBackdrop').addEventListener('click', () => setSidebar(false));
+  function closeSidebar() { setSidebar(false); }
 
   // ---- install as app (PWA) -----------------------------------------
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
