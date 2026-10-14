@@ -32,13 +32,13 @@ Done and live: projects/members/admin access, Inbox, subtasks, recurring tasks, 
 sections, board view, labels, saved filters, search, PWA install, Supabase sign-in, live sync, password reset
 (fixed: reset link now waits on the new-password screen), change password while signed in (👤 account dialog),
 and in-app 🔔 notifications (code done).
-Task comments (live, sw v13): live in demo mode; in shared mode they appear once schema.sql is re-run.
+Task comments (live, sw v13), in demo and shared mode.
 
-Done by the owner: schema.sql run (first version), sign-up disabled, URL configuration, both users created.
+Done by the owner: schema.sql run (re-run 2026-10-14 with notifications + comments), sign-up disabled, URL configuration,
+both users created.
 
 **Next steps (owner / IT):**
-1. Re-run `supabase/schema.sql` (adds the notifications and comments tables and triggers). The 🔔 bell and comments
-   only appear after this.
+1. ~~Re-run `supabase/schema.sql`~~ Done 2026-10-14 (notifications + comments tables live).
 2. IT follows `supabase/MICROSOFT365.md` (shared mailbox `todo@flexo.com.ph`, Entra app, client secret,
    RBAC for Applications scoped to that mailbox; do **not** grant Mail.Send tenant-wide in Entra).
 3. Deploy the `notify-email` function (Verify JWT off), add secrets `MS_TENANT_ID`, `MS_CLIENT_ID`,
