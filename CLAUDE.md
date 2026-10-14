@@ -30,8 +30,9 @@ creator, assignee and earlier commenters (if still on the project). In shared mo
 ## Status (2026-10-11)
 Done and live: projects/members/admin access, Inbox, subtasks, recurring tasks, due times, reminders (while the app is open),
 sections, board view, labels, saved filters, search, PWA install, Supabase sign-in, live sync, password reset
-(fixed: reset link now waits on the new-password screen), and in-app 🔔 notifications (code done).
-Task comments (live, sw v11): live in demo mode; in shared mode they appear once schema.sql is re-run.
+(fixed: reset link now waits on the new-password screen), change password while signed in (👤 account dialog),
+and in-app 🔔 notifications (code done).
+Task comments (live, sw v12): live in demo mode; in shared mode they appear once schema.sql is re-run.
 
 Done by the owner: schema.sql run (first version), sign-up disabled, URL configuration, both users created.
 

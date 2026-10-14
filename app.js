@@ -1098,12 +1098,57 @@
     store = null;
     showAuth('', 'You have signed out.');
   });
+  // ---- account: display name and password ----------------------------
   $('meBtn').addEventListener('click', () => {
     const me = userById(currentUser);
-    const name = prompt('Your display name:', me.name);
-    if (name === null || !name.trim() || name.trim() === me.name) return;
-    Cloud.updateMyName(currentUser, name).then(() => { toast('Name updated'); reloadCloud(); })
-      .catch((err) => toast(err.message, true));
+    $('accountEmail').textContent = 'Signed in as ' + me.email;
+    $('accountName').value = me.name;
+    $('accountPassword').value = '';
+    $('accountPassword2').value = '';
+    $('accountError').textContent = '';
+    $('accountDialog').showModal();
+  });
+
+  function passwordError(err) {
+    const msg = err.message || String(err);
+    if (/different from the old password/i.test(msg)) return 'That is already your password. Choose a different one.';
+    if (/reauthenticat/i.test(msg)) return 'For security, sign out and sign in again, then change your password.';
+    if (/at least \d+ characters|weak/i.test(msg)) return 'That password is too short or too easy to guess.';
+    return msg;
+  }
+
+  $('accountForm').addEventListener('submit', async (e) => {
+    if (e.submitter && e.submitter.value === 'cancel') return;
+    e.preventDefault();
+    const me = userById(currentUser);
+    const name = $('accountName').value.trim();
+    const pw = $('accountPassword').value;
+    const pw2 = $('accountPassword2').value;
+    $('accountError').textContent = '';
+    if (!name) { $('accountError').textContent = 'Enter your name.'; return; }
+    if (pw || pw2) {
+      if (pw.length < 8) { $('accountError').textContent = 'The new password needs at least 8 characters.'; return; }
+      if (pw !== pw2) { $('accountError').textContent = 'The two passwords don\'t match.'; return; }
+    }
+    $('accountSave').disabled = true;
+    const done = [];
+    try {
+      if (name !== me.name) { await Cloud.updateMyName(currentUser, name); done.push('name'); }
+      if (pw) {
+        try { await Cloud.setPassword(pw); } catch (err) { throw new Error(passwordError(err)); }
+        done.push('password');
+      }
+      $('accountDialog').close();
+      if (done.length) toast(done.includes('password') ? 'Password changed. Use it next time you sign in.' : 'Name updated');
+      if (done.includes('name')) reloadCloud();
+    } catch (err) {
+      $('accountError').textContent = (done.includes('name') ? 'Name saved, but the password was not changed: ' : '') + err.message;
+      if (done.includes('name')) reloadCloud();
+    } finally {
+      $('accountSave').disabled = false;
+      $('accountPassword').value = '';
+      $('accountPassword2').value = '';
+    }
   });
 
   // ---- shared mode: data ---------------------------------------------

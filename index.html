@@ -62,7 +62,7 @@
       <select id="userSelect" aria-label="Switch demo user"></select>
     </label>
     <!-- Shared mode: the signed-in person -->
-    <button class="btn ghost small me" id="meBtn" hidden title="Change your display name"></button>
+    <button class="btn ghost small me" id="meBtn" hidden title="Your account: name and password"></button>
     <button class="btn ghost small" id="installBtn" hidden>Install app</button>
     <button class="btn ghost small" id="resetBtn" hidden title="Restore the 5-user demo data">Reset<span class="hide-sm"> demo</span></button>
     <button class="btn ghost small" id="exitDemoBtn" hidden title="Leave the demo and go to sign-in">Exit<span class="hide-sm"> demo</span></button>
@@ -214,6 +214,27 @@
         <div class="spacer"></div>
         <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
         <button class="btn primary" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Account: display name and password (shared mode) -->
+  <dialog id="accountDialog">
+    <form method="dialog" id="accountForm">
+      <h2>Your account</h2>
+      <p class="meta" id="accountEmail"></p>
+      <label>Display name <input id="accountName" required maxlength="60" autocomplete="name"></label>
+      <fieldset class="password-box">
+        <legend>Change password</legend>
+        <label>New password <input type="password" id="accountPassword" minlength="8" autocomplete="new-password"></label>
+        <label>Repeat new password <input type="password" id="accountPassword2" minlength="8" autocomplete="new-password"></label>
+        <p class="meta">At least 8 characters. Leave both empty to keep your current password.</p>
+      </fieldset>
+      <p class="error" id="accountError" role="alert"></p>
+      <div class="dialog-actions">
+        <div class="spacer"></div>
+        <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn primary" value="save" id="accountSave">Save</button>
       </div>
     </form>
   </dialog>
