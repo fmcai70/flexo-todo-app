@@ -1327,22 +1327,31 @@
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  // Samsung Internet packages installed web apps for an old Android version, and Google Play Protect then
+  // blocks them ("Unsafe app blocked"). Chrome packages them correctly, so send Samsung users to Chrome.
+  const isSamsungBrowser = /SamsungBrowser/i.test(navigator.userAgent);
+  const openInChrome = () => {
+    location.href = 'intent://' + location.host + location.pathname + '#Intent;scheme=https;package=com.android.chrome;end';
+  };
   let installPrompt = null;
   window.addEventListener('beforeinstallprompt', (e) => {
     // Android/desktop Chrome & Edge: show our own Install button.
     e.preventDefault();
-    installPrompt = e;
+    if (!isSamsungBrowser) installPrompt = e;
     $('installBtn').hidden = false;
   });
   window.addEventListener('appinstalled', () => { $('installBtn').hidden = true; toast('App installed'); });
-  // iOS Safari has no install prompt; the button explains the Share-sheet steps instead.
-  if (isIOS && !standalone) $('installBtn').hidden = false;
+  // iOS Safari and Samsung Internet: the button explains how to install instead.
+  if ((isIOS || isSamsungBrowser) && !standalone) $('installBtn').hidden = false;
   $('installBtn').addEventListener('click', async () => {
     if (installPrompt) {
       installPrompt.prompt();
       await installPrompt.userChoice;
       installPrompt = null;
       $('installBtn').hidden = true;
+    } else if (isSamsungBrowser) {
+      if (confirm('Please install Flexo Todo from Chrome.\n\nInstalling from Samsung Internet gets blocked by Google Play Protect ("Unsafe app blocked"). '
+        + 'That is a Samsung bug, not a problem with the app.\n\nOpen this page in Chrome now? Then tap ⋮ → "Add to home screen" → Install.')) openInChrome();
     } else {
       alert('To install on iPhone/iPad:\n\n1. Tap the Share button (square with arrow) in Safari\n2. Choose "Add to Home Screen"\n3. Tap "Add"');
     }
