@@ -50,7 +50,7 @@ For each person, enter a temporary password and tick **Auto Confirm User**. Give
 
 In **SQL Editor**, run [`rls_tests.sql`](rls_tests.sql). It creates 5 temporary test users, checks what each one can see and do against the real database rules, then removes them again.
 
-You should see **"All 46 permission checks passed ✔"**. If any check fails, you'll get an error listing which ones. Send it to the developer.
+You should see **"All 58 permission checks passed ✔"**. If any check fails, you'll get an error listing which ones. Send it to the developer.
 
 ## 6. Sign in
 

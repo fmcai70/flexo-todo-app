@@ -11,6 +11,9 @@
  * only the user who created them can see or change them, not even an admin.
  * Saved filters are private to the user who made them as well.
  *
+ * Per-app access: a person needs 'todo' in their apps (or to be an admin) to use Flexo Todo at all.
+ * Accounts are shared with other Flexo apps (e.g. ActionRegister), so some people may have none.
+ *
  * Comments follow their task: whoever can see the task can read and add comments.
  * Only the author can edit a comment; the author, project manager or an admin can delete one.
  *
@@ -159,6 +162,9 @@
 
   const clone = (o) => JSON.parse(JSON.stringify(o));
 
+  // Flexo apps that share these accounts; admins manage who may use which.
+  const APPS = { todo: 'Flexo Todo', actionregister: 'ActionRegister' };
+
   // Five demo users covering every access level.
   function seedData() {
     const now = new Date().toISOString();
@@ -234,6 +240,8 @@
     state.sections = state.sections || [];
     state.filters = state.filters || [];
     state.comments = state.comments || [];
+    // Data from before per-app access: everyone could use Flexo Todo.
+    state.users.forEach((u) => { if (!Array.isArray(u.apps)) u.apps = ['todo']; });
     state.tasks.forEach((t) => {
       ['parentId', 'sectionId', 'dueTime', 'recurrence', 'reminder', 'lastCompletedAt'].forEach((k) => { if (t[k] === undefined) t[k] = null; });
       if (!Array.isArray(t.labels)) t.labels = [];
@@ -266,10 +274,22 @@
 
     // ---- permission helpers -------------------------------------------
     const isAdmin = (actorId) => findUser(actorId).role === 'admin';
+    /** May this person use the app? Admins always may. */
+    const hasAccess = (userId, app = 'todo') => {
+      const u = findUser(userId);
+      return u.role === 'admin' || u.apps.includes(app);
+    };
+    function requireAccess(actorId) {
+      if (!hasAccess(actorId)) throw new PermissionError('You don\'t have access to Flexo Todo');
+    }
+    function requireUserHasAccess(userId) {
+      if (!hasAccess(userId)) throw new ValidationError(findUser(userId).name + ' doesn\'t have access to Flexo Todo yet. Ask an admin to give them access');
+    }
     const isMemberOf = (userId, p) => p.managerId === userId || p.memberIds.includes(userId);
 
     function roleIn(actorId, projectId) {
       const p = findProject(projectId);
+      if (!hasAccess(actorId)) return null;
       if (p.managerId === actorId) return 'manager';
       if (p.memberIds.includes(actorId)) return 'member';
       if (isAdmin(actorId)) return 'admin';
@@ -312,7 +332,7 @@
 
     /** All tasks the actor may see: tasks of visible projects plus their own personal tasks. */
     function visibleTasks(actorId) {
-      findUser(actorId);
+      if (!hasAccess(actorId)) return [];
       const visible = new Set(state.projects.filter((p) => canView(actorId, p.id)).map((p) => p.id));
       return state.tasks.filter((t) => (t.projectId === null ? t.createdBy === actorId : visible.has(t.projectId)));
     }
@@ -402,15 +422,15 @@
     }
 
     function createProject(actorId, { name, color, managerId, memberIds } = {}) {
-      findUser(actorId);
+      requireAccess(actorId);
       if (typeof name !== 'string' || !name.trim()) throw new ValidationError('Project name is required');
       const mgr = managerId || actorId;
       if (mgr !== actorId && !isAdmin(actorId)) {
         throw new PermissionError('Only an admin can assign someone else as project manager');
       }
-      findUser(mgr);
+      requireUserHasAccess(mgr);
       const members = [...new Set(memberIds || [])].filter((id) => id !== mgr);
-      members.forEach(findUser);
+      members.forEach(requireUserHasAccess);
       const p = {
         id: newId('p'), name: name.trim(), color: color || '#808080',
         managerId: mgr, memberIds: members, createdBy: actorId, createdAt: new Date().toISOString(),
@@ -442,7 +462,7 @@
 
     function addMember(actorId, projectId, userId) {
       const p = requireManage(actorId, projectId);
-      findUser(userId);
+      requireUserHasAccess(userId);
       if (isMemberOf(userId, p)) throw new ValidationError('User is already in this project');
       p.memberIds.push(userId);
       notify();
@@ -463,7 +483,7 @@
     function setManager(actorId, projectId, userId) {
       const p = requireView(actorId, projectId);
       if (!isAdmin(actorId)) throw new PermissionError('Only an admin can change the project manager');
-      findUser(userId);
+      requireUserHasAccess(userId);
       if (p.managerId === userId) return clone(p);
       const previous = p.managerId;
       p.memberIds = p.memberIds.filter((id) => id !== userId);
@@ -519,7 +539,7 @@
         requireView(actorId, filter.projectId);
         tasks = state.tasks.filter((t) => t.projectId === filter.projectId);
       } else if (filter.view === 'inbox') {
-        tasks = state.tasks.filter((t) => t.projectId === null && t.createdBy === actorId);
+        tasks = hasAccess(actorId) ? state.tasks.filter((t) => t.projectId === null && t.createdBy === actorId) : [];
       } else {
         tasks = visibleTasks(actorId);
       }
@@ -534,6 +554,7 @@
     function getTask(actorId, taskId) { return clone(requireTask(actorId, taskId)); }
 
     function buildTask(actorId, projectId, fields, parentId) {
+      requireAccess(actorId);
       const p = projectId === null ? null : requireView(actorId, projectId);
       const defaults = { priority: 4, dueDate: null, dueTime: null, recurrence: null, reminder: null, labels: [], assigneeId: null, sectionId: null, description: '' };
       const f = validateTaskFields(p, Object.assign(defaults, fields, { title: fields.title }), actorId, null);
@@ -735,12 +756,12 @@
       return f;
     }
     function listFilters(actorId) {
-      findUser(actorId);
+      if (!hasAccess(actorId)) return [];
       return clone(state.filters.filter((f) => f.ownerId === actorId));
     }
     function getFilter(actorId, filterId) { return clone(findOwnFilter(actorId, filterId)); }
     function createFilter(actorId, { name, query } = {}) {
-      findUser(actorId);
+      requireAccess(actorId);
       if (!String(name || '').trim()) throw new ValidationError('Filter name is required');
       parseQuery(query); // throws on invalid queries
       const f = { id: newId('f'), ownerId: actorId, name: String(name).trim(), query: String(query).trim(), createdAt: new Date().toISOString() };
@@ -764,6 +785,21 @@
       notify();
     }
 
+    // ---- per-app access (admin) -----------------------------------------
+    /** Admins give or take away a person's access to one Flexo app. */
+    function setAppAccess(actorId, userId, app, enabled) {
+      if (!isAdmin(actorId)) throw new PermissionError('Only an admin can change who may use the apps');
+      if (!APPS[app]) throw new ValidationError('Unknown app: ' + app);
+      const u = findUser(userId);
+      if (u.role === 'admin') throw new ValidationError('Admins can always use every app');
+      const has = u.apps.includes(app);
+      if (enabled && !has) u.apps.push(app);
+      else if (!enabled && has) u.apps = u.apps.filter((a) => a !== app);
+      else return clone(u);
+      notify();
+      return clone(u);
+    }
+
     // ---- reminders -----------------------------------------------------
     /** Open tasks assigned to the actor whose reminder time passed within the last 24 hours. */
     function dueReminders(actorId, now = new Date()) {
@@ -777,7 +813,7 @@
 
     return {
       get state() { return clone(state); },
-      listUsers, getUser, isAdmin, roleIn, canView, canManage,
+      listUsers, getUser, isAdmin, roleIn, canView, canManage, hasAccess, setAppAccess,
       listProjects, getProject, createProject, updateProject, deleteProject,
       addMember, removeMember, setManager,
       listSections, createSection, renameSection, deleteSection,
@@ -794,7 +830,7 @@
   }
 
   global.TaskStore = {
-    createStore, seedData, isoDate, nextDueDate, reminderAt, normalizeLabels, parseQuery,
+    createStore, seedData, isoDate, nextDueDate, reminderAt, normalizeLabels, parseQuery, APPS,
     RECURRENCE, REMINDERS, PermissionError, ValidationError, NotFoundError,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

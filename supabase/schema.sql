@@ -12,6 +12,7 @@
 --   • non-member       : cannot see the project or any of its tasks
 --   • personal (Inbox) tasks and saved filters are private to their owner
 --   • comments follow their task; only the author edits, author/PM/admin delete
+--   • per-app access: only people with 'todo' in app_access (or admins) can use Flexo Todo
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -99,6 +100,16 @@ create index if not exists project_members_user_idx on public.project_members (u
 create index if not exists sections_project_idx on public.sections (project_id);
 create index if not exists filters_owner_idx on public.filters (owner_id);
 
+-- Which Flexo apps each person may use ('todo' = Flexo Todo, 'actionregister' = ActionRegister).
+-- Shared by all Flexo apps on this project; admins manage it, and admins can always use every app.
+create table if not exists public.app_access (
+  user_id     uuid not null references public.profiles (id) on delete cascade,
+  app         text not null check (app ~ '^[a-z][a-z0-9_]{1,30}$'),
+  granted_by  uuid default auth.uid() references public.profiles (id) on delete set null,
+  granted_at  timestamptz not null default now(),
+  primary key (user_id, app)
+);
+
 -- ---------------------------------------------------------------------
 -- Permission helpers (security definer so policies don't recurse)
 -- ---------------------------------------------------------------------
@@ -113,21 +124,31 @@ language sql stable security definer set search_path = public as $$
       or exists (select 1 from public.project_members where project_id = p_project and user_id = p_user);
 $$;
 
+-- May this person use the given Flexo app? Admins always may.
+create or replace function public.has_app_access(p_app text, p_user uuid default auth.uid()) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.profiles where id = p_user and role = 'admin')
+      or exists (select 1 from public.app_access where user_id = p_user and app = p_app);
+$$;
+
+-- Everything in Flexo Todo first requires 'todo' access.
 create or replace function public.can_view_project(p_project uuid) returns boolean
 language sql stable security definer set search_path = public as $$
-  select public.is_admin() or public.is_user_in_project(p_project, auth.uid());
+  select public.has_app_access('todo')
+     and (public.is_admin() or public.is_user_in_project(p_project, auth.uid()));
 $$;
 
 create or replace function public.can_manage_project(p_project uuid) returns boolean
 language sql stable security definer set search_path = public as $$
-  select public.is_admin()
-      or exists (select 1 from public.projects where id = p_project and manager_id = auth.uid());
+  select public.has_app_access('todo')
+     and (public.is_admin()
+          or exists (select 1 from public.projects where id = p_project and manager_id = auth.uid()));
 $$;
 
 -- A task is visible if it's your own personal task, or belongs to a project you can see.
 create or replace function public.can_view_task(p_project uuid, p_creator uuid) returns boolean
 language sql stable security definer set search_path = public as $$
-  select case when p_project is null then p_creator = auth.uid()
+  select case when p_project is null then public.has_app_access('todo') and p_creator = auth.uid()
               else public.can_view_project(p_project) end;
 $$;
 
@@ -286,12 +307,14 @@ create policy "projects_select" on public.projects
 drop policy if exists "projects_insert" on public.projects;
 create policy "projects_insert" on public.projects
   for insert to authenticated
-  with check (created_by = auth.uid() and (manager_id = auth.uid() or public.is_admin()));
+  with check (created_by = auth.uid() and public.has_app_access('todo')
+              and (manager_id = auth.uid() or public.is_admin())
+              and public.has_app_access('todo', manager_id));
 drop policy if exists "projects_update" on public.projects;
 create policy "projects_update" on public.projects
   for update to authenticated
   using (public.can_manage_project(id))
-  with check (public.can_manage_project(id));
+  with check (public.can_manage_project(id) and public.has_app_access('todo', manager_id));
 drop policy if exists "projects_delete" on public.projects;
 create policy "projects_delete" on public.projects
   for delete to authenticated using (public.can_manage_project(id));
@@ -302,7 +325,8 @@ create policy "members_select" on public.project_members
   for select to authenticated using (public.can_view_project(project_id));
 drop policy if exists "members_insert" on public.project_members;
 create policy "members_insert" on public.project_members
-  for insert to authenticated with check (public.can_manage_project(project_id));
+  for insert to authenticated
+  with check (public.can_manage_project(project_id) and public.has_app_access('todo', user_id));
 drop policy if exists "members_delete" on public.project_members;
 create policy "members_delete" on public.project_members
   for delete to authenticated using (public.can_manage_project(project_id));
@@ -346,8 +370,20 @@ create policy "tasks_delete" on public.tasks
 drop policy if exists "filters_owner" on public.filters;
 create policy "filters_owner" on public.filters
   for all to authenticated
-  using (owner_id = auth.uid())
-  with check (owner_id = auth.uid());
+  using (owner_id = auth.uid() and public.has_app_access('todo'))
+  with check (owner_id = auth.uid() and public.has_app_access('todo'));
+
+-- app access: everyone signed in can see who uses which app (for people pickers); only admins change it
+alter table public.app_access enable row level security;
+drop policy if exists "app_access_select" on public.app_access;
+create policy "app_access_select" on public.app_access
+  for select to authenticated using (true);
+drop policy if exists "app_access_insert" on public.app_access;
+create policy "app_access_insert" on public.app_access
+  for insert to authenticated with check (public.is_admin());
+drop policy if exists "app_access_delete" on public.app_access;
+create policy "app_access_delete" on public.app_access
+  for delete to authenticated using (public.is_admin());
 
 -- ---------------------------------------------------------------------
 -- Notifications (like Todoist: "Tasks assigned to you", "Task completed")
@@ -551,7 +587,8 @@ begin
    where p.id <> actor
      and (p.id = t.created_by or p.id = t.assignee_id
           or p.id in (select c.author_id from public.comments c where c.task_id = t.id))
-     and (p.role = 'admin' or public.is_user_in_project(t.project_id, p.id));
+     and (p.role = 'admin' or public.is_user_in_project(t.project_id, p.id))
+     and public.has_app_access('todo', p.id);
   return new;
 end $$;
 
@@ -570,7 +607,7 @@ grant select, insert, update, delete on all tables in schema public to authentic
 do $$
 declare t text;
 begin
-  foreach t in array array['profiles', 'projects', 'project_members', 'sections', 'tasks', 'filters', 'notifications', 'comments'] loop
+  foreach t in array array['profiles', 'projects', 'project_members', 'sections', 'tasks', 'filters', 'notifications', 'comments', 'app_access'] loop
     if not exists (select 1 from pg_publication_tables
                     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
@@ -591,5 +628,22 @@ select u.id,
 on conflict (id) do nothing;
 
 update public.profiles set role = 'admin' where email = any (public.admin_emails());
+
+-- One time only (when per-app access was introduced): everyone who already had an account keeps Flexo Todo.
+-- Recorded in schema_migrations so running this script again never re-grants access an admin removed.
+create table if not exists public.schema_migrations (
+  name    text primary key,
+  ran_at  timestamptz not null default now()
+);
+alter table public.schema_migrations enable row level security;  -- no policies: not readable from the app
+do $$
+begin
+  if not exists (select 1 from public.schema_migrations where name = 'app_access_backfill_todo') then
+    insert into public.app_access (user_id, app, granted_by)
+    select id, 'todo', null from public.profiles
+    on conflict do nothing;
+    insert into public.schema_migrations (name) values ('app_access_backfill_todo');
+  end if;
+end $$;
 
 select 'Flexo Todo database is ready ✔' as result;

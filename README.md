@@ -27,7 +27,7 @@ The app has two modes:
 | **Demo** | **Try the demo** on the sign-in screen | 5 sample users with a **Demo user** switcher. Kept only in that browser |
 
 - **First-time setup** (admin, once): follow [supabase/SETUP.md](supabase/SETUP.md). It creates the database, adds users and makes `rogerick.aban@flexo.com.ph` the admin.
-- **Tests:** open `tests.html` to run the 86 app-logic tests. Run `supabase/rls_tests.sql` in the Supabase SQL Editor to check the same 5-user permission rules against the real database.
+- **Tests:** open `tests.html` to run the 91 app-logic tests. Run `supabase/rls_tests.sql` in the Supabase SQL Editor to check the same 5-user permission rules against the real database.
 
 > If your browser blocks scripts on `file://`, serve the folder with any static server,
 > or use the GitHub Pages link below.
@@ -57,7 +57,7 @@ When you change the app, bump `CACHE` in `sw.js` (e.g. `flexo-todo-v2`) so insta
 | `store.js` | Data model and permission rules used by the app (no DOM, unit-testable) |
 | `app.js` | UI rendering, sign-in screen, demo mode and saving changes |
 | `index.html`, `styles.css` | App shell and styling |
-| `tests.html`, `tests.js` | 86 automated tests covering the 5-user scenario |
+| `tests.html`, `tests.js` | 91 automated tests covering the 5-user scenario |
 | `TEST_SCENARIO.md` | User/role matrix, permission table and manual test steps |
 | `manifest.webmanifest`, `sw.js`, `img/` | Makes it installable on phones and usable offline |
 | `cloud.js` | Sign-in, loading and saving to Supabase, live updates |

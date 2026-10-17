@@ -18,6 +18,7 @@ declare
   c uuid := gen_random_uuid();  -- Carol
   d uuid := gen_random_uuid();  -- Dave
   e uuid := gen_random_uuid();  -- Eve
+  f uuid := gen_random_uuid();  -- Frank: ActionRegister only, no Flexo Todo access
   web uuid := gen_random_uuid();
   mob uuid := gen_random_uuid();
   fin uuid := gen_random_uuid();
@@ -39,12 +40,15 @@ begin
     (b, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'bob@rls-test.local',   '', '{"name":"Bob Test"}',   now(), now()),
     (c, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'carol@rls-test.local', '', '{"name":"Carol Test"}', now(), now()),
     (d, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'dave@rls-test.local',  '', '{"name":"Dave Test"}',  now(), now()),
-    (e, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'eve@rls-test.local',   '', '{"name":"Eve Test"}',   now(), now());
+    (e, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'eve@rls-test.local',   '', '{"name":"Eve Test"}',   now(), now()),
+    (f, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'frank@rls-test.local', '', '{"name":"Frank Test"}', now(), now());
   update public.profiles set role = 'admin' where id = a;
+  -- Everyone but Frank uses Flexo Todo; Frank only uses ActionRegister.
+  insert into public.app_access (user_id, app) values (b, 'todo'), (c, 'todo'), (d, 'todo'), (e, 'todo'), (f, 'actionregister');
 
-  select count(*) into n from public.profiles where id in (a, b, c, d, e);
+  select count(*) into n from public.profiles where id in (a, b, c, d, e, f);
   checks := checks + 1;
-  if n <> 5 then failures := failures || format('profiles created for new accounts (got %s of 5)', n); end if;
+  if n <> 6 then failures := failures || format('profiles created for new accounts (got %s of 6)', n); end if;
 
   -- From here on every statement runs as a signed-in app user, with RLS applied.
   set local role authenticated;
@@ -271,14 +275,80 @@ begin
   get diagnostics n = row_count;
   checks := checks + 1; if n <> 1 then failures := failures || 'Admin could not change a project manager'; end if;
 
+  -- ---- 7. Per-app access ---------------------------------------------------
+  -- Frank has an account (ActionRegister) but no Flexo Todo access.
+  perform set_config('request.jwt.claims', json_build_object('sub', f, 'role', 'authenticated')::text, true);
+  checks := checks + 1;
+  begin
+    insert into public.projects (id, name, manager_id, created_by) values (gen_random_uuid(), 'Frank project', f, f);
+    failures := failures || 'Frank (no Todo access) could create a project';
+  exception when others then null;
+  end;
+  checks := checks + 1;
+  begin
+    insert into public.tasks (project_id, title, created_by) values (null, 'Frank inbox task', f);
+    failures := failures || 'Frank (no Todo access) could add an Inbox task';
+  exception when others then null;
+  end;
+  checks := checks + 1;
+  begin
+    insert into public.filters (owner_id, name, query) values (f, 'x', 'p1');
+    failures := failures || 'Frank (no Todo access) could save a filter';
+  exception when others then null;
+  end;
+  checks := checks + 1;
+  begin
+    insert into public.app_access (user_id, app) values (f, 'todo');
+    failures := failures || 'Frank (not admin) could give himself Todo access';
+  exception when others then null;
+  end;
+  select count(*) into n from public.app_access where user_id = b;
+  checks := checks + 1; if n <> 1 then failures := failures || 'Frank could not see who uses which app (needed for people lists)'; end if;
+
+  -- Carol (PM of Mobile) can't add Frank to her project; admin gives Frank access, then she can.
+  perform set_config('request.jwt.claims', json_build_object('sub', c, 'role', 'authenticated')::text, true);
+  checks := checks + 1;
+  begin
+    insert into public.project_members (project_id, user_id) values (mob, f);
+    failures := failures || 'A person without Todo access could be added to a project';
+  exception when others then null;
+  end;
+  perform set_config('request.jwt.claims', json_build_object('sub', a, 'role', 'authenticated')::text, true);
+  insert into public.app_access (user_id, app) values (f, 'todo');
+  perform set_config('request.jwt.claims', json_build_object('sub', c, 'role', 'authenticated')::text, true);
+  insert into public.project_members (project_id, user_id) values (mob, f);
+  perform set_config('request.jwt.claims', json_build_object('sub', f, 'role', 'authenticated')::text, true);
+  select count(*) into n from public.projects where id = mob;
+  checks := checks + 1; if n <> 1 then failures := failures || 'Frank could not see Mobile after getting access and being added'; end if;
+
+  -- Admin removes Dave's Todo access: he keeps his membership row but sees nothing.
+  perform set_config('request.jwt.claims', json_build_object('sub', a, 'role', 'authenticated')::text, true);
+  delete from public.app_access where user_id = d and app = 'todo';
+  get diagnostics n = row_count;
+  checks := checks + 1; if n <> 1 then failures := failures || 'Admin could not remove Todo access'; end if;
+  perform set_config('request.jwt.claims', json_build_object('sub', d, 'role', 'authenticated')::text, true);
+  select count(*) into n from public.projects where id = mob;
+  checks := checks + 1; if n <> 0 then failures := failures || 'Dave still saw Mobile after his Todo access was removed'; end if;
+  select count(*) into n from public.tasks where id = t_mob;
+  checks := checks + 1; if n <> 0 then failures := failures || 'Dave still saw Mobile tasks after his Todo access was removed'; end if;
+  update public.tasks set title = 'x' where id = t_mob;
+  get diagnostics n = row_count;
+  checks := checks + 1; if n <> 0 then failures := failures || 'Dave could still edit a task after his Todo access was removed'; end if;
+
+  -- Admins don't need an app_access row.
+  perform set_config('request.jwt.claims', json_build_object('sub', a, 'role', 'authenticated')::text, true);
+  select count(*) into n from public.projects where id in (web, mob, fin);
+  checks := checks + 1; if n <> 3 then failures := failures || format('Admin without an app_access row should still see 3 projects, saw %s', n); end if;
+
   -- ---- cleanup (back to the database owner) ----------------------------
   reset role;
-  delete from public.tasks where project_id in (web, mob, fin) or created_by in (a, b, c, d, e);
+  delete from public.tasks where project_id in (web, mob, fin) or created_by in (a, b, c, d, e, f);
   delete from public.projects where id in (web, mob, fin);
-  delete from public.filters where owner_id in (a, b, c, d, e);
-  delete from public.comments where author_id in (a, b, c, d, e);
-  delete from public.notifications where user_id in (a, b, c, d, e);
-  delete from auth.users where id in (a, b, c, d, e);
+  delete from public.filters where owner_id in (a, b, c, d, e, f);
+  delete from public.comments where author_id in (a, b, c, d, e, f);
+  delete from public.notifications where user_id in (a, b, c, d, e, f);
+  delete from public.app_access where user_id in (a, b, c, d, e, f);
+  delete from auth.users where id in (a, b, c, d, e, f);
 
   if array_length(failures, 1) > 0 then
     raise exception E'% of % permission checks FAILED:\n - %',

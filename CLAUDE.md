@@ -4,11 +4,11 @@ Todoist-style project and task tracker for Flexo Manufacturing. Plain HTML/CSS/J
 GitHub Pages at https://fmcai70.github.io/flexo-todo-app/ (moving to https://todo.flexo.com.ph on Hostinger), with a Supabase back end.
 
 ## Architecture
-- `store.js`: data model + permission rules (pure JS, unit-tested by `tests.html`/`tests.js`, 86 tests; the tab title shows `PASS n/n`).
+- `store.js`: data model + permission rules (pure JS, unit-tested by `tests.html`/`tests.js`, 91 tests; the tab title shows `PASS n/n`).
 - `app.js`: UI. Two modes: **shared** (Supabase sign-in, default) and **demo** (5 sample users, localStorage).
 - `cloud.js`: Supabase client. Loads visible data into the store's state shape; `pushDiff(prev, next)` saves each store change in dependency order; Realtime triggers a reload.
 - `supabase/schema.sql`: tables, Row Level Security, triggers (mirrors store.js rules). Re-runnable. Admin emails are in `admin_emails()`.
-- `supabase/rls_tests.sql`: 46-check 5-user permission test run in the Supabase SQL Editor.
+- `supabase/rls_tests.sql`: 58-check 6-user permission test run in the Supabase SQL Editor.
 - `supabase/functions/notify-email/index.ts`: Edge Function that emails notifications via **Microsoft Graph** (Flexo uses Microsoft 365; Supabase blocks SMTP 587).
 - `supabase/functions/auth-email/index.ts`: Supabase **Send Email Auth Hook** (password reset, sign-in link, invite) via the same Graph app.
   Verifies the Standard Webhooks signature (`SEND_EMAIL_HOOK_SECRET`). Setup: `supabase/AUTH_EMAIL.md`.
@@ -26,6 +26,11 @@ and saved filters are private to their owner (not even admin). Subtasks are one 
 Comments follow their task's visibility; only the author edits, the author/PM/admin delete. Commenting notifies the task's
 creator, assignee and earlier commenters (if still on the project). In shared mode comments stay hidden until the
 `comments` table exists (`FlexoCloud.hasComments`).
+**Per-app access:** accounts are shared with other Flexo apps (ActionRegister). `public.app_access (user_id, app)` says who
+may use which app (`todo`, `actionregister`); admins always may (`has_app_access()`). Every Todo rule requires `todo`
+access; people without it are signed out with a message, and aren't offered as members/PM. Admins tick access in
+👥 People & access. A one-time backfill (recorded in `schema_migrations`) gave all pre-existing accounts `todo`.
+Until schema.sql is re-run, `FlexoCloud.hasAppAccess` is false and everyone keeps access.
 
 ## People / config
 - Supabase project: `https://wlqxdgjxgvnamgiojwge.supabase.co`. The publishable key in `cloud.js` is public by design.
@@ -37,7 +42,7 @@ Done and live: projects/members/admin access, Inbox, subtasks, recurring tasks, 
 sections, board view, labels, saved filters, search, PWA install, Supabase sign-in, live sync, password reset
 (fixed: reset link now waits on the new-password screen), change password while signed in (👤 account dialog),
 and in-app 🔔 notifications (code done).
-Task comments (live, sw v17), in demo and shared mode.
+Task comments (live, sw v18), in demo and shared mode.
 
 Done by the owner: schema.sql run (re-run 2026-10-14 with notifications + comments), sign-up disabled, URL configuration,
 both users created.
@@ -51,7 +56,8 @@ both users created.
    Was: Deploy the `notify-email` function (Verify JWT off), add secrets `MS_TENANT_ID`, `MS_CLIENT_ID`,
    `MS_CLIENT_SECRET`, `MAIL_FROM`, `WEBHOOK_SECRET`, `APP_URL`, and create a Database Webhook on `notifications`
    (Insert) with header `x-webhook-secret`. See `supabase/SETUP.md` section 7.
-4. Optional: run `supabase/rls_tests.sql` (46 checks; owner skipped it so far).
+4. Optional: run `supabase/rls_tests.sql` (58 checks; owner skipped it so far).
+7. Re-run `supabase/schema.sql` to switch on per-app access (2026-10-17 build). Existing accounts keep Flexo Todo.
 5. ~~Sign-in emails~~ Done 2026-10-17: `auth-email` Send Email hook deployed; password-reset email received.
    Custom SMTP stays ON (unused, but required to keep the email rate limit raised); rate limit raised.
    MS_* secrets and the notifications Database Webhook (pg_net) are in place; notification email confirmed working 2026-10-17.

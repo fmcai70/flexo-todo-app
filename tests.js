@@ -517,6 +517,55 @@
     });
   });
 
+  describe('13. Per-app access (accounts shared with other Flexo apps)', () => {
+    // Frank (u6) has an account for ActionRegister only.
+    const FRANK = 'u6';
+    const withFrank = () => {
+      const st = window.TaskStore.seedData();
+      st.users.push({ id: FRANK, name: 'Frank Uy', email: 'frank@example.com', role: 'user', apps: ['actionregister'] });
+      return createStore(st);
+    };
+    const t = (name, fn) => test(name, () => fn(withFrank()));
+    t('Existing data without app lists keeps everyone on Flexo Todo', (s) => {
+      [ALICE, BOB, CAROL, DAVE, EVE].forEach((u) => assert(s.hasAccess(u), u + ' should have Todo access'));
+      assert(!s.hasAccess(FRANK) && s.hasAccess(FRANK, 'actionregister'), 'Frank: ActionRegister only');
+    });
+    t('Without Todo access a person sees nothing and can create nothing', (s) => {
+      eq(s.listProjects(FRANK), []);
+      eq(s.listTasks(FRANK, { includeCompleted: true }), []);
+      eq(s.listTasks(FRANK, { view: 'inbox' }), []);
+      eq(s.listFilters(FRANK), []);
+      throws(() => s.createProject(FRANK, { name: 'Mine' }), PermissionError);
+      throws(() => s.createTask(FRANK, null, { title: 'Inbox' }), PermissionError);
+      throws(() => s.createFilter(FRANK, { name: 'x', query: 'p1' }), PermissionError);
+      throws(() => s.getProject(FRANK, WEB), PermissionError);
+    });
+    t('People without Todo access cannot be made PM or member', (s) => {
+      throws(() => s.addMember(BOB, WEB, FRANK), ValidationError);
+      throws(() => s.createProject(ALICE, { name: 'X', managerId: FRANK }), ValidationError);
+      throws(() => s.createProject(BOB, { name: 'Y', memberIds: [FRANK] }), ValidationError);
+      throws(() => s.setManager(ALICE, WEB, FRANK), ValidationError);
+    });
+    t('Only an admin gives or removes access; admins always have every app', (s) => {
+      throws(() => s.setAppAccess(BOB, FRANK, 'todo', true), PermissionError);
+      throws(() => s.setAppAccess(ALICE, ALICE, 'todo', false), ValidationError);
+      throws(() => s.setAppAccess(ALICE, FRANK, 'payroll', true), ValidationError);
+      assert(s.hasAccess(ALICE, 'actionregister'), 'admin has every app');
+      eq(s.setAppAccess(ALICE, FRANK, 'todo', true).apps.sort(), ['actionregister', 'todo']);
+      s.addMember(BOB, WEB, FRANK);
+      eq(s.listProjects(FRANK).map((p) => p.id), [WEB]);
+    });
+    t('Removing access hides everything but keeps memberships for later', (s) => {
+      s.setAppAccess(ALICE, DAVE, 'todo', false);
+      eq(s.listProjects(DAVE), []);
+      eq(s.listTasks(DAVE, { includeCompleted: true }), []);
+      throws(() => s.toggleTask(DAVE, 't6'), PermissionError);
+      assert(s.getProject(CAROL, MOBILE).memberIds.includes(DAVE), 'still a member');
+      s.setAppAccess(ALICE, DAVE, 'todo', true);
+      eq(s.listProjects(DAVE).map((p) => p.id), [MOBILE]);
+    });
+  });
+
   // ---- report --------------------------------------------------------
   const passed = results.filter((r) => r.ok).length;
   const failed = results.length - passed;

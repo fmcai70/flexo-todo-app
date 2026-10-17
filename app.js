@@ -134,6 +134,8 @@
   }
 
   function renderSidebar() {
+    // Admins manage who may use which Flexo app (shared mode needs the app_access table).
+    $('adminNav').hidden = !store.isAdmin(currentUser) || (mode === 'cloud' && !(Cloud && Cloud.hasAppAccess));
     const count = (f) => store.listTasks(currentUser, f).length || '';
     $('countInbox').textContent = count({ view: 'inbox' });
     $('countToday').textContent = count({ view: 'today' });
@@ -168,6 +170,16 @@
   }
 
   function renderMain() {
+    if (!store.hasAccess(currentUser)) {
+      // Demo: an admin took this person's access away. (In shared mode they are signed out instead.)
+      $('viewTitle').replaceChildren('No access to Flexo Todo');
+      $('viewSub').textContent = 'Ask an admin to give you access (👥 People & access).';
+      ['headerActions', 'membersBar', 'taskList'].forEach((id) => $(id).replaceChildren());
+      $('board').hidden = true;
+      $('emptyState').hidden = true;
+      $('addTaskForm').hidden = true;
+      return;
+    }
     const isProject = current.type === 'project';
     const isInbox = current.type === 'view' && current.id === 'inbox';
     const project = isProject ? store.getProject(currentUser, current.id) : null;
@@ -484,11 +496,14 @@
   // ---- project dialog ------------------------------------------------
   let editingProjectId = null;
 
+  // People who may use Flexo Todo (accounts are shared with other Flexo apps). Current members stay listed.
+  const todoPeople = (keep) => store.listUsers().filter((u) => store.hasAccess(u.id) || keep.includes(u.id));
+
   function renderMemberChecks(managerId, selected, editable) {
-    $('projMembers').replaceChildren(...store.listUsers().filter((u) => u.id !== managerId).map((u) =>
+    $('projMembers').replaceChildren(...todoPeople(selected).filter((u) => u.id !== managerId).map((u) =>
       el('label', null,
         el('input', { type: 'checkbox', value: u.id, checked: selected.includes(u.id), disabled: !editable }),
-        avatar(u), u.name)));
+        avatar(u), u.name, store.hasAccess(u.id) ? null : el('span', { class: 'no-access' }, ' (no Todo access)'))));
   }
 
   function openProjectDialog(projectId) {
@@ -504,7 +519,7 @@
     $('projColor').disabled = !editable;
 
     const managerId = p ? p.managerId : currentUser;
-    $('projManager').replaceChildren(...store.listUsers().map((u) =>
+    $('projManager').replaceChildren(...todoPeople([managerId]).map((u) =>
       el('option', { value: u.id, selected: u.id === managerId }, u.name)));
     // Non-admins create projects as their own PM; only admins can reassign a PM.
     $('projManager').disabled = !admin;
@@ -995,6 +1010,47 @@
   $('prefComplete').addEventListener('change', (e) => savePref('email_on_complete', e.target));
   $('prefComment').addEventListener('change', (e) => savePref('email_on_comment', e.target));
 
+  // ---- people & access (admins) ----------------------------------------
+  const APP_LIST = Object.entries(window.TaskStore.APPS);
+
+  function renderPeople() {
+    $('peopleHint').textContent = 'Tick the Flexo apps each person may use. Admins can always use every app.' +
+      (mode === 'cloud' ? ' To add someone new: Supabase → Authentication → Users → Invite user, then tick their apps here.' : '');
+    const row = (u) => el('tr', null,
+      el('td', null, el('div', { class: 'who' }, avatar(u),
+        el('div', null,
+          el('div', null, u.name, u.role === 'admin' ? el('span', { class: 'tag admin', style: 'margin-left:6px' }, 'Admin') : null),
+          el('p', { class: 'meta' }, u.email)))),
+      ...APP_LIST.map(([app, label]) => el('td', { class: 'app' }, el('input', {
+        type: 'checkbox', 'aria-label': label + ' for ' + u.name,
+        checked: store.hasAccess(u.id, app), disabled: u.role === 'admin',
+        title: u.role === 'admin' ? 'Admins can always use every app' : null,
+        onchange: (e) => {
+          const on = e.target.checked;
+          const ok = attempt(() => store.setAppAccess(currentUser, u.id, app, on));
+          if (ok) toast(u.name + (on ? ' can now use ' : ' can no longer use ') + label);
+          renderPeople();
+          render();
+        },
+      }))));
+    $('peopleTable').replaceChildren(
+      el('thead', null, el('tr', null, el('th', null, 'Person'), ...APP_LIST.map(([, label]) => el('th', { class: 'app' }, label)))),
+      el('tbody', null, ...store.listUsers().map(row)));
+  }
+  $('peopleBtn').addEventListener('click', () => { closeSidebar(); renderPeople(); $('peopleDialog').showModal(); });
+  $('peopleClose').addEventListener('click', () => $('peopleDialog').close());
+
+  // Shared mode: an account without Flexo Todo access (e.g. ActionRegister only) is signed out with an explanation.
+  const lacksTodoAccess = () => mode === 'cloud' && !!Cloud && Cloud.hasAppAccess && !!store && !store.hasAccess(currentUser);
+  async function refuseNoAccess() {
+    const admins = store.listUsers().filter((u) => u.role === 'admin').map((u) => u.name + ' (' + u.email + ')');
+    Cloud.unsubscribe();
+    await Cloud.signOut();
+    store = null;
+    showAuth('Your Flexo account doesn\'t have access to Flexo Todo. Ask an admin to give you access' +
+      (admins.length ? ': ' + admins.join(', ') : '') + '.');
+  }
+
   // ---- global controls -----------------------------------------------
   $('userSelect').addEventListener('change', (e) => {
     if (mode !== 'demo') return;
@@ -1237,7 +1293,9 @@
       if (pendingWrites) { reloadWanted = true; return; } // a change started meanwhile; reload after it
       store = createStore(state, onCloudChange, { newId: () => crypto.randomUUID() });
       synced = store.state;
+      if (lacksTodoAccess()) { refuseNoAccess(); return; } // access was removed while signed in
       if (!$('appShell').hidden) { render(); refreshOpenTask(); }
+      if ($('peopleDialog').open) renderPeople();
       refreshNotifications(true);
     } catch (err) {
       setSync('Offline');
@@ -1267,6 +1325,7 @@
       if (recovering) return; // a reset link was detected while loading
       store = createStore(state, onCloudChange, { newId: () => crypto.randomUUID() });
       synced = store.state;
+      if (lacksTodoAccess()) { await refuseNoAccess(); return; }
       current = { type: 'view', id: 'today' };
       setSync('Saved');
       showScreen('app');

@@ -124,6 +124,20 @@ button.sub-badge:hover { color: var(--text); }
 .comment-add textarea { flex: 1; min-width: 0; resize: vertical; }
 .comment-hint { font-size: 11px; margin: 4px 0 0; }
 .comment-badge { white-space: nowrap; }
+
+/* People & access (admins) */
+.admin-nav { border-top: 1px solid var(--line); padding-top: 8px; }
+.people-dialog { padding: 0; width: min(640px, calc(100vw - 24px)); }
+.people-hint { padding: 10px 16px 0; margin: 0; line-height: 1.5; }
+.people-scroll { overflow: auto; max-height: 65vh; padding: 8px 16px 16px; }
+.people-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.people-table th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.people-table th.app, .people-table td.app { text-align: center; width: 110px; }
+.people-table td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.people-table .who { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.people-table .who .meta { margin: 0; }
+.people-table input[type=checkbox] { width: 20px; height: 20px; cursor: pointer; }
+.no-access { color: var(--muted); font-size: 12px; }
 .notif-quote { color: #555; font-size: 13px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Sign-in screen */

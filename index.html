@@ -91,6 +91,9 @@
       <div class="nav-heading"><span>Labels</span></div>
       <ul class="nav" id="labelNav"></ul>
       <p class="hint" id="noLabels" hidden>Add labels like <b>@urgent</b> to tasks and they'll show up here.</p>
+      <ul class="nav admin-nav" id="adminNav" hidden>
+        <li id="peopleBtn"><span class="nav-icon">👥</span>People &amp; access</li>
+      </ul>
     </nav>
 
     <div class="backdrop" id="sidebarBackdrop" hidden></div>
@@ -239,6 +242,17 @@
         <button class="btn primary" value="save" id="accountSave">Save</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- People & access (admins): who may use which Flexo app -->
+  <dialog id="peopleDialog" class="people-dialog">
+    <div class="notif-head">
+      <h2>People &amp; access</h2>
+      <div class="spacer"></div>
+      <button class="icon-btn" type="button" id="peopleClose" aria-label="Close">✕</button>
+    </div>
+    <p class="meta people-hint" id="peopleHint"></p>
+    <div class="people-scroll"><table class="people-table" id="peopleTable"></table></div>
   </dialog>
 
   <!-- Notifications panel (shared mode) -->

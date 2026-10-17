@@ -99,20 +99,25 @@
   // ---- load ------------------------------------------------------------
   // False until schema.sql has been re-run with the comments table; the app then hides comments.
   let hasComments = false;
+  // False until schema.sql has been re-run with per-app access; until then everyone can use Flexo Todo.
+  let hasAppAccess = false;
 
   async function loadState() {
     const tables = ['profiles', 'projects', 'project_members', 'sections', 'tasks', 'filters'];
-    const [results, commentResult] = await Promise.all([
+    const [results, commentResult, accessResult] = await Promise.all([
       Promise.all(tables.map((t) => sb.from(t).select('*').limit(10000))),
       sb.from('comments').select('*').limit(20000),
+      sb.from('app_access').select('user_id, app').limit(20000),
     ]);
     const [profiles, projects, members, sections, tasks, filters] = results.map(check);
     hasComments = !commentResult.error;
     const comments = hasComments ? commentResult.data : [];
+    hasAppAccess = !accessResult.error;
+    const appsOf = (id) => (hasAppAccess ? accessResult.data.filter((r) => r.user_id === id).map((r) => r.app) : ['todo']);
     return {
       version: 2,
       users: profiles
-        .map((p) => ({ id: p.id, name: p.name, email: p.email, role: p.role }))
+        .map((p) => ({ id: p.id, name: p.name, email: p.email, role: p.role, apps: appsOf(p.id) }))
         .sort((x, y) => x.name.localeCompare(y.name)),
       projects: projects
         .map((p) => Object.assign(fromRow('projects', p), {
@@ -160,12 +165,24 @@
     const T = diffById(prev.tasks, next.tasks);
     const F = diffById(prev.filters, next.filters);
     const C = diffById(prev.comments || [], next.comments || []);
+    const accessPairs = (st) => new Set(st.users.flatMap((u) => (u.apps || []).map((a) => u.id + '|' + a)));
+    const accessBefore = accessPairs(prev);
+    const accessAfter = accessPairs(next);
     const pairs = (st) => new Set(st.projects.flatMap((p) => p.memberIds.map((u) => p.id + '|' + u)));
     const before = pairs(prev);
     const after = pairs(next);
     const liveProjects = new Set(next.projects.map((p) => p.id));
     const addedMembers = [...after].filter((x) => !before.has(x)).map((x) => x.split('|'));
     const removedMembers = [...before].filter((x) => !after.has(x)).map((x) => x.split('|')).filter(([p]) => liveProjects.has(p));
+
+    // App access first: adding a member needs them to have Flexo Todo access already.
+    if (hasAppAccess) {
+      await insert('app_access', [...accessAfter].filter((x) => !accessBefore.has(x))
+        .map((x) => x.split('|')).map(([user_id, app]) => ({ user_id, app })));
+      for (const [userId, app] of [...accessBefore].filter((x) => !accessAfter.has(x)).map((x) => x.split('|'))) {
+        check(await sb.from('app_access').delete().eq('user_id', userId).eq('app', app));
+      }
+    }
 
     // Creates and updates: parents before children.
     await insert('projects', P.added.map((p) => toRow('projects', p)));
@@ -219,7 +236,7 @@
   function subscribe(onChange) {
     if (channel) sb.removeChannel(channel);
     // Only Flexo Todo's own tables: other Flexo apps share this database and shouldn't trigger reloads here.
-    const tables = ['profiles', 'projects', 'project_members', 'sections', 'tasks', 'filters', 'notifications', 'comments'];
+    const tables = ['profiles', 'projects', 'project_members', 'sections', 'tasks', 'filters', 'notifications', 'comments', 'app_access'];
     channel = tables.reduce((ch, table) =>
       ch.on('postgres_changes', { event: '*', schema: 'public', table }, () => onChange()), sb.channel('flexo-db'));
     channel.subscribe();
@@ -235,6 +252,7 @@
     getSession, signIn, sendSignInLink, sendPasswordReset, setPassword, signOut, onAuth, updateMyName,
     loadState, pushDiff, subscribe, unsubscribe,
     get hasComments() { return hasComments; },
+    get hasAppAccess() { return hasAppAccess; },
     loadNotifications, markNotificationsRead, getEmailPrefs, setEmailPrefs,
   };
 })();

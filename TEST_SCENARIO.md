@@ -43,7 +43,7 @@ Other rules:
 
 ## Automated tests
 
-Open `tests.html` in a browser. It runs 86 checks in 12 groups and shows **PASS/FAIL** in the tab title:
+Open `tests.html` in a browser. It runs 91 checks in 13 groups and shows **PASS/FAIL** in the tab title:
 
 1. Project visibility per user
 2. Non-members are blocked from direct access (by id, task edits, cross-project views)
@@ -57,6 +57,7 @@ Open `tests.html` in a browser. It runs 86 checks in 12 groups and shows **PASS/
 10. Labels, filters and search
 11. An end-to-end story across all 5 users
 12. Comments (who can read, add, edit and delete them)
+13. Per-app access (accounts shared with other Flexo apps)
 
 ## Manual walkthrough
 
