@@ -64,7 +64,8 @@ Open https://fmcai70.github.io/flexo-todo-app/ and sign in with the email and pa
 
 Supabase's built-in email service only sends a few emails per hour, so password resets and sign-in links soon
 fail with "email rate limit exceeded". Send them through Microsoft 365 instead: see
-[`SMTP_OFFICE365.md`](SMTP_OFFICE365.md) (note the December 2026 deadline in it).
+[`AUTH_EMAIL.md`](AUTH_EMAIL.md) (recommended; uses the same Microsoft 365 app as section 7).
+The older SMTP route, [`SMTP_OFFICE365.md`](SMTP_OFFICE365.md), stops working when Microsoft disables SMTP passwords.
 
 ## 7. Email notifications (like Todoist)
 

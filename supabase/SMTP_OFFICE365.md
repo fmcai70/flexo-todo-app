@@ -1,5 +1,8 @@
 # Sign-in emails through Microsoft 365 (custom SMTP)
 
+> **Superseded:** use [`AUTH_EMAIL.md`](AUTH_EMAIL.md) instead. It sends the same emails through the Microsoft
+> Graph app from `MICROSOFT365.md`, with no SMTP password and no end-of-2026 deadline. Keep this page only as a fallback.
+
 Supabase's built-in email service only sends a few emails per hour, so "Forgot password?" and
 "Email me a sign-in link" soon fail with **"email rate limit exceeded"**. This guide makes Supabase send
 those emails through Flexo's Microsoft 365 instead, from `todo@flexo.com.ph`, and raises the limit.

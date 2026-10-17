@@ -10,6 +10,8 @@ GitHub Pages at https://fmcai70.github.io/flexo-todo-app/, with a Supabase back 
 - `supabase/schema.sql`: tables, Row Level Security, triggers (mirrors store.js rules). Re-runnable. Admin emails are in `admin_emails()`.
 - `supabase/rls_tests.sql`: 46-check 5-user permission test run in the Supabase SQL Editor.
 - `supabase/functions/notify-email/index.ts`: Edge Function that emails notifications via **Microsoft Graph** (Flexo uses Microsoft 365; Supabase blocks SMTP 587).
+- `supabase/functions/auth-email/index.ts`: Supabase **Send Email Auth Hook** (password reset, sign-in link, invite) via the same Graph app.
+  Verifies the Standard Webhooks signature (`SEND_EMAIL_HOOK_SECRET`). Setup: `supabase/AUTH_EMAIL.md`.
 - `sw.js`: offline cache. **Bump `CACHE` on every release** so installed phones update.
 - `vendor/supabase-js-2.117.3.min.js`: the Supabase library, served from this site (not a CDN) and cached by `sw.js`.
   A CDN copy failed to load on a phone, which broke sign-in. To upgrade: `npm pack @supabase/supabase-js@X`, copy `dist/umd/supabase.js`.
@@ -45,10 +47,9 @@ both users created.
    `MS_CLIENT_SECRET`, `MAIL_FROM`, `WEBHOOK_SECRET`, `APP_URL`, and create a Database Webhook on `notifications`
    (Insert) with header `x-webhook-secret`. See `supabase/SETUP.md` section 7.
 4. Optional: run `supabase/rls_tests.sql` (46 checks; owner skipped it so far).
-5. Sign-in emails hit Supabase's built-in email limit ("email rate limit exceeded"). Owner/IT are setting up custom
-   SMTP via Office 365 (`supabase/SMTP_OFFICE365.md`). That uses SMTP Basic auth, which Microsoft disables by default
-   at the end of Dec 2026 (tenant can re-enable until a 2027 final date). Lasting fix to build: a Supabase
-   **Send Email hook** Edge Function that sends auth emails via Microsoft Graph, reusing the `notify-email` Entra app.
+5. Sign-in emails: custom SMTP via Office 365 timed out ("Context deadline exceeded"). Replaced by the `auth-email`
+   Send Email hook (built 2026-10-17): owner deploys it and creates the hook per `supabase/AUTH_EMAIL.md`.
+   As of 2026-10-16 the owner has added the MS_* secrets and the notifications Database Webhook (pg_net installed).
 
 Not yet built (from the Todoist comparison): file attachments on tasks/comments, @mentions, activity history, calendar view,
 natural-language quick add, project templates/archiving, push notifications while the app is closed.
