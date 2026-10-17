@@ -44,13 +44,14 @@ both users created.
 2. ~~IT follows `supabase/MICROSOFT365.md`~~ Done (Entra app + Exchange scope; emails send).
    Was: IT follows `supabase/MICROSOFT365.md` (shared mailbox `todo@flexo.com.ph`, Entra app, client secret,
    RBAC for Applications scoped to that mailbox; do **not** grant Mail.Send tenant-wide in Entra).
-3. Deploy the `notify-email` function (Verify JWT off), add secrets `MS_TENANT_ID`, `MS_CLIENT_ID`,
+3. ~~Deploy `notify-email` + webhook~~ Done 2026-10-17 (notification emails arrive).
+   Was: Deploy the `notify-email` function (Verify JWT off), add secrets `MS_TENANT_ID`, `MS_CLIENT_ID`,
    `MS_CLIENT_SECRET`, `MAIL_FROM`, `WEBHOOK_SECRET`, `APP_URL`, and create a Database Webhook on `notifications`
    (Insert) with header `x-webhook-secret`. See `supabase/SETUP.md` section 7.
 4. Optional: run `supabase/rls_tests.sql` (46 checks; owner skipped it so far).
 5. ~~Sign-in emails~~ Done 2026-10-17: `auth-email` Send Email hook deployed; password-reset email received.
    Custom SMTP stays ON (unused, but required to keep the email rate limit raised); rate limit raised.
-   MS_* secrets and the notifications Database Webhook (pg_net) are in place; notification email not yet confirmed.
+   MS_* secrets and the notifications Database Webhook (pg_net) are in place; notification email confirmed working 2026-10-17.
 6. Planned: move hosting to Hostinger at a subdomain (e.g. `todo.flexo.com.ph`; DNS is at dotPH, needs an A record),
    then make the GitHub repo private (it's public; no secrets in history).
 
