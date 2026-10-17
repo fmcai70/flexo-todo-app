@@ -1090,6 +1090,8 @@
         : /No internet connection/i.test(err.message) ? 'Could not reach the sign-in server. Check your internet connection and try again.'
           // Supabase's built-in email service only sends a few emails per hour.
           : /rate limit/i.test(err.message) ? 'Too many emails were sent in the last hour. Wait about an hour before asking for another link, or sign in with your password.'
+            // Supabase also enforces a short wait between two emails to the same address.
+            : /only request this after/i.test(err.message) ? 'An email was just sent. Check your inbox (and Junk), or wait a minute before asking again.'
           : err.message;
     } finally { authBusy(false); }
   }

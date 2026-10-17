@@ -40,8 +40,9 @@ Keep it private: only in Supabase.
    a minute. Check Junk the first time.
 3. Tap the button: the app opens on **Choose a new password**.
 
-Once this works you can turn **custom SMTP off** (Authentication → Emails → SMTP Settings); the hook does the sending.
-Supabase's email rate limit (Authentication → Rate Limits) still applies; 30 per hour is plenty.
+**Leave custom SMTP turned on** (Authentication → Emails → SMTP Settings). The hook does the sending when it's
+enabled, but Supabase only lets you raise the email rate limit while custom SMTP is on; turning it off can drop the
+limit back to 2 emails per hour. Set **Authentication → Rate Limits → Rate limit for sending emails** to about 30 per hour.
 
 ## Troubleshooting
 The app shows the error, and so does Supabase → **Edge Functions** → `auth-email` → **Logs** (and **Logs → Auth**).

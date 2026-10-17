@@ -34,7 +34,7 @@ Done and live: projects/members/admin access, Inbox, subtasks, recurring tasks, 
 sections, board view, labels, saved filters, search, PWA install, Supabase sign-in, live sync, password reset
 (fixed: reset link now waits on the new-password screen), change password while signed in (👤 account dialog),
 and in-app 🔔 notifications (code done).
-Task comments (live, sw v14), in demo and shared mode.
+Task comments (live, sw v15), in demo and shared mode.
 
 Done by the owner: schema.sql run (re-run 2026-10-14 with notifications + comments), sign-up disabled, URL configuration,
 both users created.
