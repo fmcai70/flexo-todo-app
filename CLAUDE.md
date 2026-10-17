@@ -31,6 +31,9 @@ may use which app (`todo`, `actionregister`); admins always may (`has_app_access
 access; people without it are signed out with a message, and aren't offered as members/PM. Admins tick access in
 👥 People & access. A one-time backfill (recorded in `schema_migrations`) gave all pre-existing accounts `todo`.
 Until schema.sql is re-run, `FlexoCloud.hasAppAccess` is false and everyone keeps access.
+**Flexo Portal** (`fmcai70/flexo-portal`, private, planned at `https://apps.flexo.com.ph`): sign-in + app tiles + People & access.
+Once it's live, retire Todo's 👥 People & access screen and link to the portal instead. Keep `APPS` in `store.js`
+and the portal's `config.js` in step until then.
 
 ## People / config
 - Supabase project: `https://wlqxdgjxgvnamgiojwge.supabase.co`. The publishable key in `cloud.js` is public by design.
