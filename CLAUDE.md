@@ -14,7 +14,7 @@ GitHub Pages at https://fmcai70.github.io/flexo-todo-app/ (moving to https://tod
   Verifies the Standard Webhooks signature (`SEND_EMAIL_HOOK_SECRET`). Setup: `supabase/AUTH_EMAIL.md`.
 - Shared sign-in: other Flexo apps use this same Supabase project/accounts (see `SHARED_AUTH.md`). So: `auth-email`
   wording is app-neutral ("your Flexo account"); live updates subscribe to Flexo Todo's tables only; never rely on
-  other apps' tables. Other apps prefix their tables (e.g. `inv_`) and keep their SQL in their own repo.
+  other apps' tables. Other apps prefix their tables (ActionRegister: `ar_`) and keep their SQL in their own repo.
 - `sw.js`: offline cache. **Bump `CACHE` on every release** so installed phones update.
 - `vendor/supabase-js-2.117.3.min.js`: the Supabase library, served from this site (not a CDN) and cached by `sw.js`.
   A CDN copy failed to load on a phone, which broke sign-in. To upgrade: `npm pack @supabase/supabase-js@X`, copy `dist/umd/supabase.js`.
