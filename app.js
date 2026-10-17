@@ -869,7 +869,7 @@
   // A phone/desktop pop-up, if the person allowed them.
   function systemNotify(title, body, tag) {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    const opts = { body, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag };
+    const opts = { body, icon: 'img/icon-192.png', badge: 'img/icon-192.png', tag };
     // Android only allows notifications through the service worker.
     const fallback = () => { try { new Notification(title, opts); } catch (e) { /* toast already shown */ } };
     if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {

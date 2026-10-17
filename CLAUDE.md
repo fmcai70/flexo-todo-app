@@ -1,7 +1,7 @@
 # Flexo Todo: notes for Claude / developers
 
 Todoist-style project and task tracker for Flexo Manufacturing. Plain HTML/CSS/JS (no build step), hosted on
-GitHub Pages at https://fmcai70.github.io/flexo-todo-app/, with a Supabase back end.
+GitHub Pages at https://fmcai70.github.io/flexo-todo-app/ (moving to https://todo.flexo.com.ph on Hostinger), with a Supabase back end.
 
 ## Architecture
 - `store.js`: data model + permission rules (pure JS, unit-tested by `tests.html`/`tests.js`, 86 tests; the tab title shows `PASS n/n`).
@@ -34,7 +34,7 @@ Done and live: projects/members/admin access, Inbox, subtasks, recurring tasks, 
 sections, board view, labels, saved filters, search, PWA install, Supabase sign-in, live sync, password reset
 (fixed: reset link now waits on the new-password screen), change password while signed in (👤 account dialog),
 and in-app 🔔 notifications (code done).
-Task comments (live, sw v15), in demo and shared mode.
+Task comments (live, sw v16), in demo and shared mode.
 
 Done by the owner: schema.sql run (re-run 2026-10-14 with notifications + comments), sign-up disabled, URL configuration,
 both users created.
@@ -52,8 +52,11 @@ both users created.
 5. ~~Sign-in emails~~ Done 2026-10-17: `auth-email` Send Email hook deployed; password-reset email received.
    Custom SMTP stays ON (unused, but required to keep the email rate limit raised); rate limit raised.
    MS_* secrets and the notifications Database Webhook (pg_net) are in place; notification email confirmed working 2026-10-17.
-6. Planned: move hosting to Hostinger at a subdomain (e.g. `todo.flexo.com.ph`; DNS is at dotPH, needs an A record),
-   then make the GitHub repo private (it's public; no secrets in history).
+6. In progress: move hosting to Hostinger at `todo.flexo.com.ph` (DNS at dotPH: A record → Hostinger IP; hPanel Git
+   deploy with a read-only GitHub deploy key + auto-deploy webhook), then make the GitHub repo private (it's public;
+   no secrets in history). Steps: `HOSTINGER.md`. `.htaccess` (tested on Apache 2.4) forces HTTPS except
+   `/.well-known/` (SSL issuance), sets no-cache on html/js/css/sw.js, and 403s `*.md`, `*.sql`, `*.ts`, `supabase/`, dotfiles.
+   Icons live in `img/` (not `icons/`: Apache's default `Alias /icons/` would shadow them).
 
 Not yet built (from the Todoist comparison): file attachments on tasks/comments, @mentions, activity history, calendar view,
 natural-language quick add, project templates/archiving, push notifications while the app is closed.

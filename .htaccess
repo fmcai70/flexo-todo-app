@@ -1,0 +1,32 @@
+# Flexo Todo on Hostinger (LiteSpeed/Apache). GitHub Pages ignores this file.
+
+RewriteEngine On
+
+# Always use HTTPS (needed for installing the app and offline mode).
+# (Not for /.well-known/, which the free SSL certificate is verified through.)
+RewriteCond %{HTTPS} off
+RewriteCond %{REQUEST_URI} !^/\.well-known/
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# The Git deploy copies the whole repository; keep setup guides, database scripts,
+# functions and git internals off the public website.
+RewriteRule ^(\.git|supabase|\.github)(/|$) - [F,L]
+RewriteRule \.(md|sql|ts|patch|sh)$ - [F,L]
+RewriteCond %{REQUEST_URI} !^/\.well-known/
+RewriteRule (^|/)\. - [F,L]
+
+<IfModule mod_headers.c>
+  # Check for a new version on every visit so phones never get stuck on an old app.
+  <FilesMatch "\.(html|js|css|webmanifest)$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+  <FilesMatch "^sw\.js$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+  </FilesMatch>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set X-Frame-Options "SAMEORIGIN"
+</IfModule>
+
+AddType application/manifest+json .webmanifest
+Options -Indexes

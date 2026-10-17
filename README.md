@@ -59,7 +59,7 @@ When you change the app, bump `CACHE` in `sw.js` (e.g. `flexo-todo-v2`) so insta
 | `index.html`, `styles.css` | App shell and styling |
 | `tests.html`, `tests.js` | 86 automated tests covering the 5-user scenario |
 | `TEST_SCENARIO.md` | User/role matrix, permission table and manual test steps |
-| `manifest.webmanifest`, `sw.js`, `icons/` | Makes it installable on phones and usable offline |
+| `manifest.webmanifest`, `sw.js`, `img/` | Makes it installable on phones and usable offline |
 | `cloud.js` | Sign-in, loading and saving to Supabase, live updates |
 | `supabase/schema.sql` | Database tables and the **server-side access rules** (Row Level Security) |
 | `supabase/rls_tests.sql` | 5-user permission test against the real database |
