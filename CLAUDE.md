@@ -31,7 +31,7 @@ may use which app (`todo`, `actionregister`); admins always may (`has_app_access
 access; people without it are signed out with a message, and aren't offered as members/PM. Admins tick access in
 👥 People & access. A one-time backfill (recorded in `schema_migrations`) gave all pre-existing accounts `todo`.
 Until schema.sql is re-run, `FlexoCloud.hasAppAccess` is false and everyone keeps access.
-**Flexo Portal** (`fmcai70/flexo-portal`, private, planned at `https://apps.flexo.com.ph`): sign-in + app tiles + People & access.
+**Flexo Portal** (`fmcai70/flexo-portal`; temporarily public on GitHub Pages at https://fmcai70.github.io/flexo-portal/ for testing, planned at `https://apps.flexo.com.ph`): sign-in + app tiles + People & access.
 Once it's live, retire Todo's 👥 People & access screen and link to the portal instead. Keep `APPS` in `store.js`
 and the portal's `config.js` in step until then.
 
@@ -60,7 +60,7 @@ both users created.
    `MS_CLIENT_SECRET`, `MAIL_FROM`, `WEBHOOK_SECRET`, `APP_URL`, and create a Database Webhook on `notifications`
    (Insert) with header `x-webhook-secret`. See `supabase/SETUP.md` section 7.
 4. Optional: run `supabase/rls_tests.sql` (58 checks; owner skipped it so far).
-7. Re-run `supabase/schema.sql` to switch on per-app access (2026-10-17 build). Existing accounts keep Flexo Todo.
+7. ~~Re-run schema.sql for per-app access~~ Done (owner confirmed; portal's People & access works).
 5. ~~Sign-in emails~~ Done 2026-10-17: `auth-email` Send Email hook deployed; password-reset email received.
    Custom SMTP stays ON (unused, but required to keep the email rate limit raised); rate limit raised.
    MS_* secrets and the notifications Database Webhook (pg_net) are in place; notification email confirmed working 2026-10-17.
