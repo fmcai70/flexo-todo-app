@@ -63,10 +63,15 @@ const COPY: Record<string, { subject: string; intro: string; button: string }> =
   email_change: { subject: "Confirm your new email for Flexo Todo", intro: "Tap the button to confirm the change of email address on your Flexo Todo account.", button: "Confirm email change" },
 };
 
+// Emails sent from the Supabase dashboard carry the project's Site URL, which defaults to localhost;
+// a link back to localhost is useless to staff, so use the app's real address instead.
+const isLocal = (url: string) => /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/i.test(url);
+
 function verifyLink(tokenHash: string, type: string, redirectTo: string): string {
   const base = env("SUPABASE_URL").replace(/\/$/, "");
+  const back = redirectTo && !isLocal(redirectTo) ? redirectTo : env("APP_URL", "https://fmcai70.github.io/flexo-todo-app/");
   return `${base}/auth/v1/verify?token=${encodeURIComponent(tokenHash)}&type=${encodeURIComponent(type)}` +
-    `&redirect_to=${encodeURIComponent(redirectTo || env("APP_URL", "https://fmcai70.github.io/flexo-todo-app/"))}`;
+    `&redirect_to=${encodeURIComponent(back)}`;
 }
 
 function layout(inner: string): string {

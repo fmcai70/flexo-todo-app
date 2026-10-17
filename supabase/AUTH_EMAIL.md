@@ -54,4 +54,5 @@ The app shows the error, and so does Supabase → **Edge Functions** → `auth-e
 | `Microsoft 365 refused to send (403) … ErrorAccessDenied` | IT's Exchange step (MICROSOFT365.md Part 4) isn't active yet; it can take up to 2 hours |
 | `Microsoft 365 refused to send (404) … ErrorInvalidUser` | `MAIL_FROM` mailbox doesn't exist or has a typo |
 | Nothing in the function logs | The hook isn't enabled, or its URL is wrong (step 2) |
+| Link goes to `localhost` | Set **Authentication → URL Configuration → Site URL** to the app's address and add it under Redirect URLs. (The function also replaces localhost with `APP_URL`, but Supabase only accepts addresses listed there.) |
 | Link opens but says it expired | Links work once and expire after about an hour. Request a new one and use only the newest email |
