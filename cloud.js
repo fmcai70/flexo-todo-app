@@ -218,9 +218,11 @@
   let channel = null;
   function subscribe(onChange) {
     if (channel) sb.removeChannel(channel);
-    channel = sb.channel('flexo-db')
-      .on('postgres_changes', { event: '*', schema: 'public' }, () => onChange())
-      .subscribe();
+    // Only Flexo Todo's own tables: other Flexo apps share this database and shouldn't trigger reloads here.
+    const tables = ['profiles', 'projects', 'project_members', 'sections', 'tasks', 'filters', 'notifications', 'comments'];
+    channel = tables.reduce((ch, table) =>
+      ch.on('postgres_changes', { event: '*', schema: 'public', table }, () => onChange()), sb.channel('flexo-db'));
+    channel.subscribe();
   }
   function unsubscribe() {
     if (channel) sb.removeChannel(channel);

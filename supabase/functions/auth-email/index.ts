@@ -1,4 +1,6 @@
-// Flexo Todo: sends sign-in emails (password reset, sign-in link, invite) through Microsoft 365.
+// Flexo apps: sends sign-in emails (password reset, sign-in link, invite) through Microsoft 365.
+// One Supabase project (one account per person) serves Flexo Todo and the other Flexo apps, so the wording
+// is about the person's Flexo account, not one app. The link returns to whichever app asked.
 //
 // Supabase calls this as its "Send Email" Auth Hook instead of sending through SMTP
 // (see supabase/AUTH_EMAIL.md). It reuses the Microsoft Graph app from MICROSOFT365.md,
@@ -56,11 +58,11 @@ async function verifySignature(body: string, headers: Headers, secret: string): 
 
 // ---- Email content ----
 const COPY: Record<string, { subject: string; intro: string; button: string }> = {
-  recovery: { subject: "Reset your Flexo Todo password", intro: "Someone asked to reset the password for your Flexo Todo account. Tap the button to choose a new password.", button: "Choose a new password" },
-  magiclink: { subject: "Your Flexo Todo sign-in link", intro: "Tap the button to sign in to Flexo Todo.", button: "Sign in" },
-  invite: { subject: "You're invited to Flexo Todo", intro: "You've been added to Flexo Todo, Flexo's task tracker. Tap the button to accept and set your password.", button: "Accept invitation" },
-  signup: { subject: "Confirm your Flexo Todo account", intro: "Tap the button to confirm your email address.", button: "Confirm email" },
-  email_change: { subject: "Confirm your new email for Flexo Todo", intro: "Tap the button to confirm the change of email address on your Flexo Todo account.", button: "Confirm email change" },
+  recovery: { subject: "Reset your Flexo password", intro: "Someone asked to reset the password for your Flexo account. Tap the button to choose a new password. It works for all Flexo apps you use.", button: "Choose a new password" },
+  magiclink: { subject: "Your Flexo sign-in link", intro: "Tap the button to sign in.", button: "Sign in" },
+  invite: { subject: "You're invited to Flexo's apps", intro: "A Flexo account has been created for you. Tap the button to accept and set your password. You'll use it to sign in to Flexo's apps, such as Flexo Todo.", button: "Accept invitation" },
+  signup: { subject: "Confirm your Flexo account", intro: "Tap the button to confirm your email address.", button: "Confirm email" },
+  email_change: { subject: "Confirm your new email for your Flexo account", intro: "Tap the button to confirm the change of email address on your Flexo account.", button: "Confirm email change" },
 };
 
 // Emails sent from the Supabase dashboard carry the project's Site URL, which defaults to localhost;
@@ -77,7 +79,7 @@ function verifyLink(tokenHash: string, type: string, redirectTo: string): string
 function layout(inner: string): string {
   return `
   <div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#202020">
-    <div style="background:#c63a2d;color:#fff;padding:14px 18px;border-radius:8px 8px 0 0;font-weight:700">✔ Flexo Todo</div>
+    <div style="background:#c63a2d;color:#fff;padding:14px 18px;border-radius:8px 8px 0 0;font-weight:700">✔ Flexo</div>
     <div style="border:1px solid #eee;border-top:none;border-radius:0 0 8px 8px;padding:18px">${inner}
       <p style="margin:18px 0 0;font-size:12px;color:#6b6b6b">If you didn't ask for this, you can ignore this email. Your account stays as it is.</p>
     </div>
@@ -87,12 +89,12 @@ function layout(inner: string): string {
 export function compose(type: string, data: { link?: string; code?: string }) {
   if (type === "reauthentication") {
     return {
-      subject: "Your Flexo Todo verification code",
-      html: layout(`<p style="margin:0 0 12px">Enter this code in Flexo Todo to confirm it's you:</p>
+      subject: "Your Flexo verification code",
+      html: layout(`<p style="margin:0 0 12px">Enter this code in the app to confirm it's you:</p>
         <p style="margin:0;font-size:26px;font-weight:700;letter-spacing:4px">${escapeHtml(data.code || "")}</p>`),
     };
   }
-  const c = COPY[type] || { subject: "Flexo Todo", intro: "Tap the button to continue.", button: "Continue" };
+  const c = COPY[type] || { subject: "Flexo", intro: "Tap the button to continue.", button: "Continue" };
   const link = escapeHtml(data.link || "");
   return {
     subject: c.subject,
