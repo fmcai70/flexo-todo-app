@@ -60,6 +60,10 @@
     return n;
   }
 
+  // The saved sign-in is no longer valid (expired, or ended elsewhere): Supabase refuses MFA calls with it.
+  const isExpired = (error) => /bearer token|session.*(missing|expired|not found)|invalid (jwt|refresh token)|jwt expired|refresh token/i
+    .test((error && error.message) || String(error || ''));
+
   function friendly(error) {
     const msg = (error && error.message) || String(error);
     if (/invalid.*(totp|code)|code.*invalid|expired/i.test(msg)) {
@@ -77,6 +81,12 @@
   }
 
   async function run(sb, opts) {
+    // Ask Supabase whether the saved sign-in is still valid (getSession only reads what the browser kept).
+    const who = await sb.auth.getUser();
+    if (who.error || !who.data || !who.data.user) {
+      if (who.error && !isExpired(who.error) && /fetch|network|load failed/i.test(who.error.message || '')) throw who.error;
+      return new Promise((resolve) => panel(sb, opts, resolve).expired());
+    }
     const aal = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
     if (aal.error) throw aal.error;
     if (aal.data && aal.data.currentLevel === 'aal2') return 'ok';
@@ -101,6 +111,8 @@
 
     const close = (result) => { root.remove(); resolve(result); };
     const signOut = async () => { try { await sb.auth.signOut(); } finally { close('signed-out'); } };
+    // For a sign-in Supabase no longer accepts: just forget it in this browser (a server call would fail).
+    const forget = async () => { try { await sb.auth.signOut({ scope: 'local' }); } finally { close('signed-out'); } };
 
     // A 6-digit code box; submits by itself once six digits are in.
     function codeForm(onCode) {
@@ -120,6 +132,7 @@
           await onCode(code);
           close('ok');
         } catch (e) {
+          if (isExpired(e)) { expired(); return; }
           err.textContent = friendly(e);
           input.value = '';
         } finally {
@@ -196,7 +209,17 @@
       input.focus();
     }
 
-    return { challenge, enroll };
+    // The sign-in can't be used any more: sign out cleanly and let the app show its sign-in page.
+    function expired() {
+      card.replaceChildren(
+        el('p', { class: 'fmfa-app' }, opts.appName || 'Flexo'),
+        el('h1', { id: 'fmfa-title' }, 'Please sign in again'),
+        el('p', null, 'Your sign-in has expired. Sign in again with your email and password, then enter the code from your authenticator app.'),
+        el('button', { class: 'fmfa-primary', type: 'button', onclick: forget }, 'Sign in again'));
+      card.querySelector('button').focus();
+    }
+
+    return { challenge, enroll, expired };
   }
 
   window.FlexoMFA = { ensure };
