@@ -1,4 +1,4 @@
-// Flexo apps: sends sign-in emails (password reset, sign-in link, invite) through Microsoft 365.
+// Flexo Portal: sends sign-in emails (password reset, sign-in link, invite) through Microsoft 365.
 // One Supabase project (one account per person) serves Flexo Todo and the other Flexo apps, so the wording
 // is about the person's Flexo account, not one app. The link returns to whichever app asked.
 //
@@ -57,12 +57,45 @@ async function verifySignature(body: string, headers: Headers, secret: string): 
 }
 
 // ---- Email content ----
-const COPY: Record<string, { subject: string; intro: string; button: string }> = {
-  recovery: { subject: "Reset your Flexo password", intro: "Someone asked to reset the password for your Flexo account. Tap the button to choose a new password. It works for all Flexo apps you use.", button: "Choose a new password" },
-  magiclink: { subject: "Your Flexo sign-in link", intro: "Tap the button to sign in.", button: "Sign in" },
-  invite: { subject: "You're invited to Flexo's apps", intro: "A Flexo account has been created for you. Tap the button to accept and set your password. You'll use it to sign in to Flexo's apps, such as Flexo Todo.", button: "Accept invitation" },
-  signup: { subject: "Confirm your Flexo account", intro: "Tap the button to confirm your email address.", button: "Confirm email" },
-  email_change: { subject: "Confirm your new email for your Flexo account", intro: "Tap the button to confirm the change of email address on your Flexo account.", button: "Confirm email change" },
+// Branded "Flexo Portal": one account and one password for every Flexo app (Portal, ActionRegister, Todo).
+// The link still returns to whichever app the person was using.
+const BRAND = "Flexo Portal";
+const PORTAL_URL = "https://flexo.com.ph/portal/";
+const PORTAL_RED = "#c63a2d"; // the Flexo Portal's colour (flexo-portal/styles.css --accent)
+const CODE_NOTE = "You'll then be asked for the code from your authenticator app.";
+
+const COPY: Record<string, { subject: string; intro: string; button: string; note?: string }> = {
+  recovery: {
+    subject: "Reset your Flexo Portal password",
+    intro: "Someone asked to reset the password for your Flexo Portal account. Tap the button to choose a new one. " +
+      "It's the same password for every Flexo app (Portal, ActionRegister, Todo).",
+    button: "Choose a new password",
+    note: CODE_NOTE,
+  },
+  magiclink: {
+    subject: "Your Flexo Portal sign-in link",
+    intro: "Tap the button to sign in to your Flexo Portal account.",
+    button: "Sign in",
+    note: CODE_NOTE,
+  },
+  invite: {
+    subject: "You're invited to the Flexo Portal",
+    intro: "A Flexo Portal account has been created for you. Tap the button to accept and set your password. " +
+      "You'll use it for every Flexo app (Portal, ActionRegister, Todo).",
+    button: "Accept invitation",
+    note: "Next you'll set up an authenticator app (Microsoft Authenticator or Google Authenticator) on your phone; " +
+      "it gives the code you enter each time you sign in.",
+  },
+  signup: {
+    subject: "Confirm your Flexo Portal account",
+    intro: "Tap the button to confirm your email address.",
+    button: "Confirm email",
+  },
+  email_change: {
+    subject: "Confirm the new email for your Flexo Portal account",
+    intro: "Tap the button to confirm the change of email address on your Flexo Portal account.",
+    button: "Confirm email change",
+  },
 };
 
 // Emails sent from the Supabase dashboard carry the project's Site URL, which defaults to localhost;
@@ -79,28 +112,31 @@ function verifyLink(tokenHash: string, type: string, redirectTo: string): string
 function layout(inner: string): string {
   return `
   <div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#202020">
-    <div style="background:#c63a2d;color:#fff;padding:14px 18px;border-radius:8px 8px 0 0;font-weight:700">✔ Flexo</div>
-    <div style="border:1px solid #eee;border-top:none;border-radius:0 0 8px 8px;padding:18px">${inner}
+    <div style="background:${PORTAL_RED};color:#fff;padding:14px 18px;border-radius:8px 8px 0 0;font-weight:700">&#10004; ${BRAND}</div>
+    <div style="border:1px solid #e5e8ee;border-top:none;border-radius:0 0 8px 8px;padding:18px">${inner}
       <p style="margin:18px 0 0;font-size:12px;color:#6b6b6b">If you didn't ask for this, you can ignore this email. Your account stays as it is.</p>
     </div>
+    <p style="margin:10px 0 0;font-size:11px;color:#8a8a8a;text-align:center">
+      Sent by Flexo Manufacturing Corporation's apps &middot; <a href="${PORTAL_URL}" style="color:#8a8a8a">${PORTAL_URL}</a></p>
   </div>`;
 }
 
 export function compose(type: string, data: { link?: string; code?: string }) {
   if (type === "reauthentication") {
     return {
-      subject: "Your Flexo verification code",
+      subject: "Your Flexo Portal verification code",
       html: layout(`<p style="margin:0 0 12px">Enter this code in the app to confirm it's you:</p>
         <p style="margin:0;font-size:26px;font-weight:700;letter-spacing:4px">${escapeHtml(data.code || "")}</p>`),
     };
   }
-  const c = COPY[type] || { subject: "Flexo", intro: "Tap the button to continue.", button: "Continue" };
+  const c = COPY[type] || { subject: BRAND, intro: "Tap the button to continue.", button: "Continue" };
   const link = escapeHtml(data.link || "");
   return {
     subject: c.subject,
     html: layout(`<p style="margin:0 0 16px">${escapeHtml(c.intro)}</p>
-      <p style="margin:0 0 16px"><a href="${link}" style="background:#c63a2d;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;display:inline-block">${escapeHtml(c.button)}</a></p>
-      <p style="margin:0;font-size:12px;color:#6b6b6b">Button not working? Copy this link into your browser:<br><span style="word-break:break-all">${link}</span></p>`),
+      <p style="margin:0 0 16px"><a href="${link}" style="background:${PORTAL_RED};color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;display:inline-block;font-weight:600">${escapeHtml(c.button)}</a></p>
+      ${c.note ? `<p style="margin:0 0 16px;font-size:13px;color:#404040">${escapeHtml(c.note)}</p>` : ""}
+      <p style="margin:0;font-size:12px;color:#6b6b6b">Button not working? Copy this link into your browser. It works once and expires soon:<br><span style="word-break:break-all">${link}</span></p>`),
   };
 }
 
