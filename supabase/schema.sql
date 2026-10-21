@@ -13,6 +13,8 @@
 --   • personal (Inbox) tasks and saved filters are private to their owner
 --   • comments follow their task; only the author edits, author/PM/admin delete
 --   • per-app access: only people with 'todo' in app_access (or admins) can use Flexo Todo
+--   • MFA: nothing is readable or changeable until the session has passed the authenticator-code step
+--     (aal2, see mfa.js); this covers every Flexo app, because they all use is_admin() / has_app_access()
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -113,9 +115,15 @@ create table if not exists public.app_access (
 -- ---------------------------------------------------------------------
 -- Permission helpers (security definer so policies don't recurse)
 -- ---------------------------------------------------------------------
+-- Has this session passed the second sign-in step (authenticator code)? Required for everyone (mfa.js).
+create or replace function public.mfa_ok() returns boolean
+language sql stable as $$
+  select coalesce(auth.jwt() ->> 'aal', '') = 'aal2';
+$$;
+
 create or replace function public.is_admin() returns boolean
 language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.profiles where id = auth.uid() and role = 'admin');
+  select public.mfa_ok() and exists (select 1 from public.profiles where id = auth.uid() and role = 'admin');
 $$;
 
 create or replace function public.is_user_in_project(p_project uuid, p_user uuid) returns boolean
@@ -124,11 +132,13 @@ language sql stable security definer set search_path = public as $$
       or exists (select 1 from public.project_members where project_id = p_project and user_id = p_user);
 $$;
 
--- May this person use the given Flexo app? Admins always may.
+-- May this person use the given Flexo app? Admins always may. Asking about yourself also requires the
+-- authenticator-code step; asking about someone else (e.g. a new project manager) doesn't.
 create or replace function public.has_app_access(p_app text, p_user uuid default auth.uid()) returns boolean
 language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.profiles where id = p_user and role = 'admin')
-      or exists (select 1 from public.app_access where user_id = p_user and app = p_app);
+  select (p_user is distinct from auth.uid() or public.mfa_ok())
+     and (exists (select 1 from public.profiles where id = p_user and role = 'admin')
+          or exists (select 1 from public.app_access where user_id = p_user and app = p_app));
 $$;
 
 -- Everything in Flexo Todo first requires 'todo' access.
@@ -596,6 +606,17 @@ drop trigger if exists notify_comment on public.comments;
 create trigger notify_comment
   after insert on public.comments
   for each row execute function public.notify_comment();
+
+-- MFA: on top of every rule above, each table requires a session that passed the authenticator-code step.
+-- (A restrictive policy is ANDed with the others, so a password-only session sees and changes nothing.)
+do $$
+declare t text;
+begin
+  foreach t in array array['profiles', 'projects', 'project_members', 'sections', 'tasks', 'filters', 'notifications', 'comments', 'app_access'] loop
+    execute format('drop policy if exists "mfa_required" on public.%I', t);
+    execute format('create policy "mfa_required" on public.%I as restrictive to authenticated using (public.mfa_ok()) with check (public.mfa_ok())', t);
+  end loop;
+end $$;
 
 -- Only signed-in users get table access; anonymous visitors get nothing.
 revoke all on all tables in schema public from anon;
