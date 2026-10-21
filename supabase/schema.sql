@@ -619,8 +619,11 @@ begin
 end $$;
 
 -- Only signed-in users get table access; anonymous visitors get nothing.
+-- The grant names Flexo Todo's own and the shared tables only: other Flexo apps in this database (e.g.
+-- ActionRegister's ar_* tables) set their own, stricter grants, and running this script must not undo them.
 revoke all on all tables in schema public from anon;
-grant select, insert, update, delete on all tables in schema public to authenticated;
+grant select, insert, update, delete on public.profiles, public.projects, public.project_members, public.sections,
+  public.tasks, public.filters, public.notifications, public.comments, public.app_access to authenticated;
 
 -- ---------------------------------------------------------------------
 -- Live updates (Realtime) for every table
