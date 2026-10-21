@@ -79,3 +79,13 @@ HttpListener on port 8765) and open `tests.html` and `index.html`. Shared mode c
 `window.supabase` client loaded before `cloud.js`.
 The schema and `rls_tests.sql` can be run against a plain local Postgres 16 with a small shim (roles `anon`/`authenticated`,
 an `auth.users` table, `auth.uid()` reading `request.jwt.claims`, and a `supabase_realtime` publication).
+
+## MFA (authenticator app, required for everyone)
+`mfa.js` (identical copy in the portal, `actionregister/js/` and flexo-todo-app) is the second sign-in step: after the
+password or emailed link, `FlexoMFA.ensure(sb, {appName, color})` shows "Set up your authenticator" (QR + key, first
+time) or "Enter your code", using Supabase TOTP MFA; it resolves 'ok' (session at aal2) or 'signed-out'. Apps call it
+before loading any data, and before `updateUser({password})` in the reset flow (Supabase requires aal2 there).
+Portal and ActionRegister share the session (same origin), so the code is asked once for both. Phase B (database
+enforcement via `mfa_ok()` in flexo-todo-app/supabase/schema.sql) makes aal2 required server-side. Lost phone: an
+admin deletes the person's MFA factor in Supabase → Authentication → Users. Keep the `mfa.js` copies identical.
+

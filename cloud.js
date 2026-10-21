@@ -82,6 +82,12 @@
   async function sendPasswordReset(email) {
     check(await sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: appUrl() }));
   }
+  // Second sign-in step (authenticator code), required for every Flexo account: see mfa.js.
+  // Resolves 'ok' once the session has passed it, or 'signed-out' if the person signed out there.
+  function ensureMfa() {
+    if (!window.FlexoMFA) throw new Error('Could not load the sign-in check. Reload the page');
+    return window.FlexoMFA.ensure(sb, { appName: 'Flexo Todo', color: '#c63a2d' });
+  }
   async function setPassword(password) {
     check(await sb.auth.updateUser({ password }));
   }
@@ -249,7 +255,7 @@
   window.FlexoCloud = {
     cameFromPasswordReset, // true when opened from a "reset password" email
     linkError, // e.g. "Email link is invalid or has expired"
-    getSession, signIn, sendSignInLink, sendPasswordReset, setPassword, signOut, onAuth, updateMyName,
+    getSession, signIn, sendSignInLink, sendPasswordReset, setPassword, signOut, onAuth, updateMyName, ensureMfa,
     loadState, pushDiff, subscribe, unsubscribe,
     get hasComments() { return hasComments; },
     get hasAppAccess() { return hasAppAccess; },

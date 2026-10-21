@@ -1187,6 +1187,8 @@
     authAction(async () => {
       const session = await Cloud.getSession();
       if (!session) throw new Error('This reset link has expired. Go back and tap "Forgot password?" again.');
+      // Supabase only lets an account with MFA change its password after the code step.
+      if (await Cloud.ensureMfa() !== 'ok') { recovering = false; showAuth('', 'You have signed out.'); return; }
       await Cloud.setPassword($('newPassword').value);
       $('newPassword').value = '';
       recovering = false;
@@ -1313,9 +1315,10 @@
     if (recovering || entering || (store && currentUser === session.user.id && mode === 'cloud')) return;
     entering = true;
     try {
+      showScreen('loading');
+      if (await Cloud.ensureMfa() !== 'ok') { showAuth('', 'You have signed out.'); return; }
       mode = 'cloud';
       currentUser = session.user.id;
-      showScreen('loading');
       const state = await Cloud.loadState();
       if (!state.users.some((u) => u.id === currentUser)) {
         await Cloud.signOut();
